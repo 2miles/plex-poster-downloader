@@ -55,6 +55,8 @@ pip install python-dotenv
 6. Find and note the library id for each library you want poster downloaded for.
 
    - You can find the ID of the library by going to the library in the Plex web app and looking at the URL. The ID is the number at the end of the URL.
+   - Example: `http://192.168.0.2:32400/web/index.html#!/media/da496...a18/com.plexapp.plugins.library?source=1`
+     - The ID for this library is 1.
 
 ## What does the script do?
 

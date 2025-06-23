@@ -1,44 +1,44 @@
-import os
+import argparse
 from dotenv import load_dotenv
+from typing import Optional
+import os
 import requests
-import xml.etree.ElementTree as ET
 import shutil
+import xml.etree.ElementTree as ET
 
 load_dotenv()
 
 plex_url = os.environ.get("PLEX_URL")
 plex_token = os.environ.get("PLEX_TOKEN")
 
-# The ID of the library to download posters from.
-library = 1
-
-# You can find the ID of the library by going to the library in the Plex web app
-# and looking at the URL. The ID is the number at the end of the URL.
-
-# http://192.168.0.2:32400/web/index.html#!/media/da29639fee14f7dbcf83794fdc05dea66ca68a58/com.plexapp.plugins.library?source=1
-# Here the ID is 1.
-
-# The IDs of the libraries are as follows:
-
-# 1 - Movies
-# 2 - TV Shows
-# 3 - Music
-# 4 - Animated
-# 5 - Documentaries
-# 6 - Anime
+parser = argparse.ArgumentParser(description="Download Plex posters.")
+parser.add_argument(
+    "--mode",
+    choices=["skip", "overwrite", "add"],
+    default="skip",
+    help="Poster handling mode: skip (default), overwrite, or add new poster file",
+)
+parser.add_argument(
+    "--library",
+    type=int,
+    default=1,
+    help="Plex library section ID to pull posters from (default: 1)",
+)
+args = parser.parse_args()
 
 
-def get_all_media(id):
+def get_all_media(id) -> Optional[ET.Element]:
     """
-    Gets all media for a library.
+    Retrieves all media items from a specified Plex library.
 
-    Keyword arguments:
-    id -- the id of the library
+    Args:
+        id (int): The numeric ID of the Plex library.
+
+    Returns:
+        Optional[Element]: The root XML element if successful, otherwise None.
     """
     response = requests.get(
-        "{0}/library/sections/{1}/all?X-Plex-Token={2}".format(
-            plex_url, library, plex_token
-        )
+        f"{plex_url}/library/sections/{id}/all?X-Plex-Token={plex_token}"
     )
     if response.ok:
         root = ET.fromstring(response.content)
@@ -47,13 +47,16 @@ def get_all_media(id):
         return None
 
 
-def get_media_path(video_tag):
+def get_media_path(video_tag: ET.Element) -> Optional[str]:
     """
-    Finds the full path to the media item, without the name of the
-    media file.
+    Returns the directory path for a media item, based on its metadata.
 
-    Keyword arguments:
-    video_tag -- the video tag returned by the Plex API
+    Args:
+        video_tag (Element): A *Video* tag from the Plex API XML.
+
+    Returns:
+        Optional[str]: The folder path where the poster should be saved,
+        or None if the path couldn't be determined.
     """
     media_tag = video_tag.find("Media")
     if media_tag is None:
@@ -65,73 +68,74 @@ def get_media_path(video_tag):
 
     file_path = part_tag.get("file")
     if file_path:
-        return next_filename(os.path.dirname(file_path))
-    else:
-        return None
+        return os.path.dirname(file_path)
 
 
-def get_poster_url(video_tag):
+def get_poster_url(video_tag: ET.Element) -> Optional[str]:
     """
-    Gets the URL of the media's poster.
+    Constructs the URL to download a media item's poster from Plex.
 
-    Keyword arguments:
-    video_tag -- the video tag returned by the Plex API
+    Args:
+        video_tag (Element): A Video XML tag from the Plex API.
+
+    Returns:
+        Optional[str]: The full poster URL if available, otherwise None.
     """
+
     poster = video_tag.get("thumb")
     if poster:
-        return "{0}{1}?X-Plex-Token={2}".format(plex_url, poster, plex_token)
+        return f"{plex_url}{poster}?X-Plex-Token={plex_token}"
     else:
         return None
 
 
-def next_filename(path):
+def next_filename(path: str, mode: str) -> Optional[str]:
     """
-    Finds the next free poster name.
+    Determines the appropriate filename to save a poster image, based on the specified mode.
 
-    The first poster name is simply poster.jpg, while all subsequent posters
-    are in the format: poster-n.jpg, where n is a number.
+    Args:
+        path (str): The directory path where the poster should be saved.
+        mode (str): Poster saving mode. One of:
+            - skip: "Only use poster.jpg if it doesn't already exist."
+            - overwrite: "Always use 'poster.jpg', replacing any existing file."
+            - add: "Always create a new poster file (e.g., 'poster-1.jpg', 'poster-2.jpg', etc.)."
 
-    e.g. path_pattern = 'poster-%s.txt':
-
-    poster-1.txt
-    poster-2.txt
-    poster-3.txt
-
-    Keyword arguments:
-    path -- the path of the media item
+    Returns:
+        Optional[str]: The resolved poster file path to use, or None if skipped.
     """
-    # Check for the first post file name, and if it doesn't
-    # exist then use that
-    file_path = "{0}/poster.jpg".format(path)
-    if not os.path.exists(file_path):
-        return file_path
 
-    # Set the poster naming pattern if at least one poster
-    # exists for the media item
-    path_pattern = "{0}/poster-%s.jpg".format(path)
-    i = 1
+    base_path = f"{path}/poster.jpg"
 
-    # First do an exponential search
-    while os.path.exists(path_pattern % i):
-        i = i * 2
+    if mode == "overwrite":
+        return base_path
 
-    # Result lies somewhere in the interval (i/2..i]
-    # We call this interval (a..b] and narrow it down until a + 1 = b
-    a, b = (i // 2, i)
-    while a + 1 < b:
-        c = (a + b) // 2  # interval midpoint
-        a, b = (c, b) if os.path.exists(path_pattern % c) else (a, c)
+    if mode == "skip":
+        return base_path if not os.path.exists(base_path) else None
 
-    return path_pattern % b
+    if mode == "add":
+        if not os.path.exists(base_path):
+            return base_path
+
+        i = 1
+        while True:
+            new_path = f"{path}/poster-{i}.jpg"
+            if not os.path.exists(new_path):
+                return new_path
+            i += 1
+
+    return None
 
 
-def download_poster(poster_url, path):
+def download_poster(poster_url: str, path: str) -> None:
     """
-    Downloads the poster from the URL to the specified path.
+    Downloads the poster image from the given URL and saves it to the specified path.
 
-    Keyword arguments:
-    poster_url -- the url of the poster to be downloaded
-    path -- the path of the poster
+    Args:
+        poster_url (str): The full URL of the poster image to download.
+        path (str): The local file path where the poster should be saved.
+
+    Returns:
+        None
     """
     response = requests.get(poster_url, stream=True)
     if response.status_code == 200:
@@ -139,16 +143,27 @@ def download_poster(poster_url, path):
             response.raw.decode_content = True
             shutil.copyfileobj(response.raw, f)
     else:
-        print("Couldn't download poster. Status code: {0}".format(response.status_code))
+        print(f"Couldn't download poster. Status code: {response.status_code}")
 
 
-root = get_all_media(library)
+root = get_all_media(args.library)
+if root is None:
+    print(f"Failed to retrieve media for library ID {args.library}")
+    exit(1)
+
 for video_tag in root.findall("Video"):
-    path = get_media_path(video_tag)
-    if not path:
+    media_path = get_media_path(video_tag)
+    if not media_path:
         print("The path to the media was not found.")
+        continue
+    poster_path = next_filename(media_path, args.mode)
+    if not poster_path:
+        print(f"Skipping poster: already exists at {media_path}/poster.jpg")
         continue
 
     poster_url = get_poster_url(video_tag)
     if poster_url:
-        download_poster(poster_url, path)
+        print(f"Downloading to: {poster_path}")
+        download_poster(poster_url, poster_path)
+    else:
+        print("No poster URL found.")

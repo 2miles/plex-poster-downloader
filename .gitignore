@@ -29,7 +29,7 @@ venv/
 ENV/
 env/
 .venv/
-.env/
+.env
 
 # PyInstaller
 #  Usually contains temp files and build artifacts

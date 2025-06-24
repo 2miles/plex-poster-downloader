@@ -27,7 +27,7 @@ parser.add_argument(
 args = parser.parse_args()
 
 
-def get_all_media(id) -> Optional[ET.Element]:
+def get_all_media(id: int) -> Optional[ET.Element]:
     """
     Retrieves all media items from a specified Plex library.
 

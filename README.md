@@ -8,11 +8,17 @@ This script was originally created by [Paul Salmon](https://github.com/TechieGuy
 
 ### Modifications
 
-- Added the ability to skip, overwrite, or add a new poster, controlled via command-line arguments.
-
-- Added the ability to choose the target library when running the script.
-
-- Updated the documentation a bit.
+- Added the ability to skip, overwrite, or add new posters, controlled via `--mode`.
+- Made the target Plex library configurable via `--library` argument.
+- Replaced overly complex filename logic (binary search) with simpler and readable logic.
+- Added error handling for failed API requests or invalid environment variables.
+- Modernized the codebase:
+  - Replaced `.format()` with f-strings.
+  - Added proper type hints (`Optional`, `Element`, etc.).
+  - Loaded secrets via `.env` file with `python-dotenv`.
+- Cleaned up and standardized all docstrings using Google-style format.
+- Refactored logic for clarity (separating concerns between media path and filename generation).
+- Improved output clarity with formatted logging messages.
 
 ## About the script
 
@@ -24,39 +30,67 @@ This script downloads all the movie posters for items currently selected in your
 
 ## Setup
 
-1. Clone the repo
+### 1. **Clone this repository**
 
-```
-git clone  ...
-```
+Open a terminal and run:
 
-2. Install the dependencies:
-
-```
-pip install requests
-pip install python-dotenv
+```bash
+   git clone https://github.com/2miles/plex-posters.git
+   cd plex-posters
 ```
 
-3. Get your `PLEX_URL`
+### 2. **Install Dependencies**
 
-   - Example: `http://192.168.0.2:32400`
+Its recomended to use a virtual environment:
 
-4. Get your `PLEX_TOKEN`
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows use: venv\Scripts\activate
+pip install -r requirements.txt
+```
 
-   1. Log in to your Plex account
-   2. Open Developer Tools in your browser
-   3. Go to the Network tab
-   4. In the Web App, browse to any media item (e.g. open a movie or show).
-   5. In the Network tab click on the request
-   6. In Headers, scroll down to Query String Parameters or Request Headers and look for `X-Plex-Token: abc123xyz456...`
+Or just install manually:
 
-5. Create a `.env` file to store your `PLEX_URL` and `PLEX_TOKEN`
+```bash
+pip install requests python-dotenv
+```
 
-6. Find and note the library id for each library you want poster downloaded for.
+### 3. Get your Plex server URL (PLEX_URL)
 
-   - You can find the ID of the library by going to the library in the Plex web app and looking at the URL. The ID is the number at the end of the URL.
-   - Example: `http://192.168.0.2:32400/web/index.html#!/media/da496...a18/com.plexapp.plugins.library?source=1`
-     - The ID for this library is 1.
+This is typically something like: `http://192.168.0.2:32400`
+
+### 4. Get your Plex token (PLEX_TOKEN)
+
+- Log in to your Plex account
+- Open Developer Tools (F12) in your browser
+- Go to the Network tab
+- Play or open a media item
+- In the Network tab click on the request
+- Click any request to `/library/...`
+- In Headers, scroll down to Query String Parameters or Request Headers and look for `X-Plex-Token: abc123xyz456...`
+
+### 5. Create a `.env` file
+
+In the root of the project, create a file called `.env` and add:
+
+```
+PLEX_URL=http://192.168.0.2:32400
+PLEX_TOKEN=abc123xyz456
+```
+
+### 6. Find and note the library id for each library you want poster downloaded for.
+
+- You can find the ID of the library by going to the library in the Plex web app and looking at the URL. The ID is the number at the end of the URL.
+- Example: `http://192.168.0.2:32400/web/index.html#!/media/da496...a18/com.plexapp.plugins.library?source=1`
+  - The ID for this library is 1.
+
+### 6. Find your Plex library ID
+
+- Open your Plex Web App
+- Navigate to a library (e.g. Movies, TV Shows)
+- Look at the URL. The ID is the number at the end:
+  - `...library?source=1`
+  - In this case the library ID = 1
 
 ## What does the script do?
 
@@ -66,13 +100,13 @@ The script will make multiple calls to the Plex API to perform the following ste
 
 - Once all the movies have been retrieved, it will loop through all the movies and then call `get_media_path()` to get the full path of each movie. This path is used to store the downloaded poster.
 
-- Next, `get_poster_url()` function is called to get the URL API command to download the poster. This URL is the Get a Movie's Poster endpoint.
+- Next, `get_poster_url()` is called to get the URL API command to download the poster. This URL is the 'Get a Movie's Poster' endpoint.
 
 - Once the URL for the poster is known, `download_poster()` downloads and saves it. Then, `next_filename()` determines the appropriate poster filename based on your selected mode.
 
 ## How to use it
 
-The script accepts two arguments: **mode** and **library**. If not supplied, the mode defaults to `add` and the library defaults to `1`. **_Be careful with this if you're unsure which library you're targeting._**
+The script accepts two arguments: **mode** and **library**. If not supplied, the mode defaults to `skip` and the library defaults to `1`. **_Be careful with this if you're unsure which library you're targeting._**
 
 ### Mode
 

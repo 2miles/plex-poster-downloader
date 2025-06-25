@@ -16,11 +16,10 @@ import xml.etree.ElementTree as ET
 
 load_dotenv()
 
-PLEX_URL = os.environ.get("PLEX_URL")
-PLEX_TOKEN = os.environ.get("PLEX_TOKEN")
-
-CONTAINER_MEDIA_PREFIX = os.getenv("PLEX_MEDIA_PREFIX", "")
-HOST_MEDIA_PREFIX = os.getenv("NAS_MEDIA_PREFIX", "")
+PLEX_URL = os.getenv("PLEX_URL")
+PLEX_TOKEN = os.getenv("PLEX_TOKEN")
+CONTAINER_MEDIA_PREFIX = os.getenv("CONTAINER_MEDIA_PREFIX", "")
+HOST_MEDIA_PREFIX = os.getenv("HOST_MEDIA_PREFIX", "")
 
 parser = argparse.ArgumentParser(description="Download Plex posters.")
 parser.add_argument(

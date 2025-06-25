@@ -1,4 +1,4 @@
-# Plex Posters
+# Plex Poster Downloader
 
 ## Acknowledgments
 

@@ -1,3 +1,11 @@
+"""
+This script is adapted from an original version by Paul Salmon (TechieGuy12),
+available via https://www.plexopedia.com/blog/download-movie-posters-from-plex-server/
+
+Significant modifications and enhancements were made to support poster naming modes,
+environment-based configuration, error handling, and improved documentation.
+"""
+
 import argparse
 from dotenv import load_dotenv
 from typing import Optional
@@ -8,8 +16,11 @@ import xml.etree.ElementTree as ET
 
 load_dotenv()
 
-plex_url = os.environ.get("PLEX_URL")
-plex_token = os.environ.get("PLEX_TOKEN")
+PLEX_URL = os.environ.get("PLEX_URL")
+PLEX_TOKEN = os.environ.get("PLEX_TOKEN")
+
+CONTAINER_MEDIA_PREFIX = os.getenv("PLEX_MEDIA_PREFIX", "")
+HOST_MEDIA_PREFIX = os.getenv("NAS_MEDIA_PREFIX", "")
 
 parser = argparse.ArgumentParser(description="Download Plex posters.")
 parser.add_argument(
@@ -38,7 +49,7 @@ def get_all_media(id: int) -> Optional[ET.Element]:
         Optional[Element]: The root XML element if successful, otherwise None.
     """
     response = requests.get(
-        f"{plex_url}/library/sections/{id}/all?X-Plex-Token={plex_token}"
+        f"{PLEX_URL}/library/sections/{id}/all?X-Plex-Token={PLEX_TOKEN}"
     )
     if response.ok:
         root = ET.fromstring(response.content)
@@ -71,6 +82,26 @@ def get_media_path(video_tag: ET.Element) -> Optional[str]:
         return os.path.dirname(file_path)
 
 
+def resolve_nas_path(container_path: str) -> str:
+    """
+    Converts a media path inside the Plex container to the corresponding NAS filesystem path.
+    If PLEX_MEDIA_PREFIX or NAS_MEDIA_PREFIX is not set, returns the original path.
+
+    Args:
+        container_path (str): The original path from Plex (e.g., "/data/media/...")
+
+    Returns:
+        str: The adjusted path for the NAS host (e.g., "/volume1/data/media/..."), or the original path if not modified.
+    """
+    if (
+        CONTAINER_MEDIA_PREFIX
+        and HOST_MEDIA_PREFIX
+        and container_path.startswith(CONTAINER_MEDIA_PREFIX)
+    ):
+        return container_path.replace(CONTAINER_MEDIA_PREFIX, HOST_MEDIA_PREFIX, 1)
+    return container_path
+
+
 def get_poster_url(video_tag: ET.Element) -> Optional[str]:
     """
     Constructs the URL to download a media item's poster from Plex.
@@ -84,7 +115,7 @@ def get_poster_url(video_tag: ET.Element) -> Optional[str]:
 
     poster = video_tag.get("thumb")
     if poster:
-        return f"{plex_url}{poster}?X-Plex-Token={plex_token}"
+        return f"{PLEX_URL}{poster}?X-Plex-Token={PLEX_TOKEN}"
     else:
         return None
 
@@ -156,6 +187,7 @@ for video_tag in root.findall("Video"):
     if not media_path:
         print("The path to the media was not found.")
         continue
+    media_path = resolve_nas_path(media_path)
     poster_path = next_filename(media_path, args.mode)
     if not poster_path:
         print(f"Skipping poster: already exists at {media_path}/poster.jpg")

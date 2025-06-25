@@ -2,23 +2,31 @@
 
 ## Acknowledgments
 
-This script was originally created by [Paul Salmon](https://github.com/TechieGuy12) and can be found at:
+This script is based on a blog post and original script by [Paul Salmon (TechieGuy12)](https://github.com/TechieGuy12):
 
-[https://www.plexopedia.com/blog/download-movie-posters-from-plex-server/](https://www.plexopedia.com/blog/download-movie-posters-from-plex-server/)
+- Blog post: [Download Movie Posters from a Plex Server](https://www.plexopedia.com/blog/download-movie-posters-from-plex-server/)
+
+Parts of this README and the original script logic were adapted from his work. This version includes additional functionality, refactoring, and expanded documentation.
 
 ### Modifications
 
-- Added the ability to skip, overwrite, or add new posters, controlled via `--mode`.
-- Made the target Plex library configurable via `--library` argument.
-- Replaced overly complex filename logic (binary search) with simpler and readable logic.
-- Added error handling for failed API requests or invalid environment variables.
-- Modernized the codebase:
-  - Replaced `.format()` with f-strings.
-  - Added proper type hints (`Optional`, `Element`, etc.).
-  - Loaded secrets via `.env` file with `python-dotenv`.
+- Added support for poster handling modes via `--mode`:
+  - skip: only download if poster is missing
+  - overwrite: always replace existing poster
+  - add: save additional posters (e.g. poster-1.jpg, poster-2.jpg)
+- Made target Plex library configurable via `--library` argument.
+- Introduced .env support using python-dotenv for PLEX_URL, PLEX_TOKEN, and path prefix mappings.
+- Added configurable media path mapping for container vs host
+- Replaced overly complex filename search (binary + exponential search) with simpler logic.
+- Improved error handling for failed API calls and missing environment variables.
+- Refactored path resolution logic (resolve_nas_path) for clarity and modularity.
+- Rewrote all docstrings using consistent, clear Google-style format.
+- Modernized codebase:
+  - Switched from .format() to f-strings
+  - Added type hints (Optional, Element, etc.)
+- Modularized poster naming, downloading, and path handling
+- Improved logging and status messages for better UX.
 - Cleaned up and standardized all docstrings using Google-style format.
-- Refactored logic for clarity (separating concerns between media path and filename generation).
-- Improved output clarity with formatted logging messages.
 
 ## About the script
 
@@ -76,21 +84,34 @@ In the root of the project, create a file called `.env` and add:
 ```
 PLEX_URL=http://192.168.0.2:32400
 PLEX_TOKEN=abc123xyz456
+CONTAINER_MEDIA_PREFIX=
+HOST_MEDIA_PREFIX=
 ```
 
 ### 6. Find and note the library id for each library you want poster downloaded for.
-
-- You can find the ID of the library by going to the library in the Plex web app and looking at the URL. The ID is the number at the end of the URL.
-- Example: `http://192.168.0.2:32400/web/index.html#!/media/da496...a18/com.plexapp.plugins.library?source=1`
-  - The ID for this library is 1.
-
-### 6. Find your Plex library ID
 
 - Open your Plex Web App
 - Navigate to a library (e.g. Movies, TV Shows)
 - Look at the URL. The ID is the number at the end:
   - `...library?source=1`
   - In this case the library ID = 1
+
+### 7. (Optional) Map Container Paths to NAS Paths
+
+If you’re running Plex in Docker and your media files are stored outside the container, Plex will report file paths like: `/data/media/Movies/Your Movie (2020)`
+
+But the actual path on your NAS might be: `/volume1/data/media/Movies/Your Movie (2020)`
+
+To handle this, set the following variables in your `.env` file:
+
+```
+CONTAINER_MEDIA_PREFIX=/data/media
+HOST_MEDIA_PREFIX=/volume1/data/media
+```
+
+This tells the script to replace /data/media with /volume1/data/media so it can find the correct folders when saving posters.
+
+**_If you’re not using Docker, or if Plex’s media paths already match your filesystem, you can leave these variables unset and the script will skip this step automatically._**
 
 ## What does the script do?
 
@@ -137,3 +158,7 @@ Before running the script, there are a few things to keep in mind:
 - If you wish to store the posters in another location, then you can just modify the script to change the location. This will allow the script to be run from another machine.
 
 - Running the script multiple times in `mode=add` will create additional copies of the same poster. This script does not check to see if the poster exists in the folder, it simply adds the poster to the folder, with an incrementing number in the name.
+
+## Disclaimer
+
+This script interacts directly with your Plex server and filesystem. Use with caution, especially when using `--mode=overwrite` or modifying file permissions. Always make backups before running any automation that alters media files.

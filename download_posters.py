@@ -38,15 +38,6 @@ args = parser.parse_args()
 
 
 def get_all_media(id: int) -> Optional[ET.Element]:
-    """
-    Retrieves all media items from a specified Plex library.
-
-    Args:
-        id (int): The numeric ID of the Plex library.
-
-    Returns:
-        Optional[Element]: The root XML element if successful, otherwise None.
-    """
     response = requests.get(
         f"{PLEX_URL}/library/sections/{id}/all?X-Plex-Token={PLEX_TOKEN}"
     )
@@ -58,16 +49,6 @@ def get_all_media(id: int) -> Optional[ET.Element]:
 
 
 def get_media_path(video_tag: ET.Element) -> Optional[str]:
-    """
-    Returns the directory path for a media item, based on its metadata.
-
-    Args:
-        video_tag (Element): A *Video* tag from the Plex API XML.
-
-    Returns:
-        Optional[str]: The folder path where the poster should be saved,
-        or None if the path couldn't be determined.
-    """
     media_tag = video_tag.find("Media")
     if media_tag is None:
         return None
@@ -82,16 +63,9 @@ def get_media_path(video_tag: ET.Element) -> Optional[str]:
 
 
 def resolve_nas_path(container_path: str) -> str:
-    """
-    Converts a media path inside the Plex container to the corresponding NAS filesystem path.
-    If PLEX_MEDIA_PREFIX or NAS_MEDIA_PREFIX is not set, returns the original path.
+    """Converts a media path from inside the Plex container to the corresponding NAS path.
+    Returns the original path if no mapping is configured."""
 
-    Args:
-        container_path (str): The original path from Plex (e.g., "/data/media/...")
-
-    Returns:
-        str: The adjusted path for the NAS host (e.g., "/volume1/data/media/..."), or the original path if not modified.
-    """
     if (
         CONTAINER_MEDIA_PREFIX
         and HOST_MEDIA_PREFIX
@@ -102,16 +76,6 @@ def resolve_nas_path(container_path: str) -> str:
 
 
 def get_poster_url(video_tag: ET.Element) -> Optional[str]:
-    """
-    Constructs the URL to download a media item's poster from Plex.
-
-    Args:
-        video_tag (Element): A Video XML tag from the Plex API.
-
-    Returns:
-        Optional[str]: The full poster URL if available, otherwise None.
-    """
-
     poster = video_tag.get("thumb")
     if poster:
         return f"{PLEX_URL}{poster}?X-Plex-Token={PLEX_TOKEN}"
@@ -120,19 +84,7 @@ def get_poster_url(video_tag: ET.Element) -> Optional[str]:
 
 
 def next_filename(path: str, mode: str) -> Optional[str]:
-    """
-    Determines the appropriate filename to save a poster image, based on the specified mode.
-
-    Args:
-        path (str): The directory path where the poster should be saved.
-        mode (str): Poster saving mode. One of:
-            - skip: "Only use poster.jpg if it doesn't already exist."
-            - overwrite: "Always use 'poster.jpg', replacing any existing file."
-            - add: "Always create a new poster file (e.g., 'poster-1.jpg', 'poster-2.jpg', etc.)."
-
-    Returns:
-        Optional[str]: The resolved poster file path to use, or None if skipped.
-    """
+    """Determines the appropriate filename to save a poster image, based on the specified mode."""
 
     base_path = f"{path}/poster.jpg"
 
@@ -157,16 +109,6 @@ def next_filename(path: str, mode: str) -> Optional[str]:
 
 
 def download_poster(poster_url: str, path: str) -> None:
-    """
-    Downloads the poster image from the given URL and saves it to the specified path.
-
-    Args:
-        poster_url (str): The full URL of the poster image to download.
-        path (str): The local file path where the poster should be saved.
-
-    Returns:
-        None
-    """
     response = requests.get(poster_url, stream=True)
     if response.status_code == 200:
         with open(path, "wb") as f:
@@ -176,22 +118,30 @@ def download_poster(poster_url: str, path: str) -> None:
         print(f"Couldn't download poster. Status code: {response.status_code}")
 
 
+# Fetch all media items from the selected Plex library
 root = get_all_media(args.library)
 if root is None:
     print(f"Failed to retrieve media for library ID {args.library}")
     exit(1)
 
+# Iterate through each movie in the library
 for video_tag in root.findall("Video"):
+    # Get the file path of the media item
     media_path = get_media_path(video_tag)
     if not media_path:
         print("The path to the media was not found.")
         continue
+
+    # Convert container path to host path if needed
     media_path = resolve_nas_path(media_path)
+
+    # Determine the appropriate filename based on mode
     poster_path = next_filename(media_path, args.mode)
     if not poster_path:
         print(f"Skipping poster: already exists at {media_path}/poster.jpg")
         continue
 
+    # Get the poster image URL and download it
     poster_url = get_poster_url(video_tag)
     if poster_url:
         print(f"Downloading to: {poster_path}")

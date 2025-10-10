@@ -121,7 +121,7 @@ The script accepts two arguments:
 
 ### Example
 
-- `python3 download_poster.py --mode=skip --library=3`
+- `python3 download_posters.py --mode=skip --library=3`
 
 ## Disclaimer
 

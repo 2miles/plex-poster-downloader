@@ -6,31 +6,28 @@ This script is based on a blog post and original script by [Paul Salmon (TechieG
 
 - Blog post: [Download Movie Posters from a Plex Server](https://www.plexopedia.com/blog/download-movie-posters-from-plex-server/)
 
-Parts of this README and the original script logic were adapted from his work. This version includes additional functionality, refactoring, and expanded documentation.
+Parts of the logic and some wording were adapted from his work. This version has been significantly expanded and refactored for additional flexibility and clarity.
 
-### Modifications
+### Notable Features & Enhancements
 
-- Added support for poster handling modes via `--mode`:
-  - skip: only download if poster is missing
-  - overwrite: always replace existing poster
-  - add: save additional posters (e.g. poster-1.jpg, poster-2.jpg)
-- Made target Plex library configurable via `--library` argument.
-- Introduced .env support for PLEX_URL, PLEX_TOKEN, and path prefix mappings.
-- Replaced overly complex filename search (binary + exponential search) with simpler logic.
-- Improved error handling for failed API calls and missing environment variables.
-- Modernized codebase:
-  - Switched from .format() to f-strings
-  - Added type hints (Optional, Element, etc.)
-- Modularized poster naming, downloading, and path handling
-- Improved logging and status messages for better UX.
+- Supports both `poster.jpg` and `fanart.jpg` downloads
+- Poster handling modes via `--mode`: `skip`, `overwrite`, or `add`
+- Image type inclusion flags: `--posters` and `--fanart`
+- Configurable Plex library via `--library`
+- Environment variable support via `.env`:
+  - `PLEX_URL`, `PLEX_TOKEN`
+  - `CONTAINER_MEDIA_PREFIX`, `HOST_MEDIA_PREFIX` (optional path mapping)
+- Clean, modular code with helpful output and error handling
 
 ## Overview
 
 I wanted a better way of [managing my movie posters](https://www.plexopedia.com/plex-media-server/general/posters-artwork/), instead of leaving it to Plex. A way that prevents the posters from being changed by Plex and also allows me to store the actual movie poster file as a `.jpg`
 
-The issue is that posters that are downloaded from Plex or uploaded using the Web app are stored in bundles. These are folders in the [Plex data directory](https://www.plexopedia.com/plex-media-server/general/data-directory/) that contain all the files for the movie.
+The issue is that posters (and fanart) that are downloaded from Plex or uploaded using the Web app are stored in bundles. These are folders in the [Plex data directory](https://www.plexopedia.com/plex-media-server/general/data-directory/) that contain all the files for the movie, including artwork, but aren’t ideal for manual control, backup, or portability.
 
-This script downloads all the movie posters for items currently selected in your Plex library and saves them in their respective movie folder as `poster.jpg`. This ensures you have a local copy of each poster saved in the correct movie folder — one that Plex will detect and use instead of automatically selecting its own.
+This script downloads all the movie posters and fanart images for items currently selected in your Plex library and saves them in their respective movie folder as `poster.jpg` and `fanart.jpg`. This ensures you have a local copy of each image saved in the correct movie folder — one that Plex will detect and use instead of automatically selecting its own.
+
+You can choose to include specific image types with `--posters` and `--fanart`
 
 ## Setup
 
@@ -45,7 +42,7 @@ Open a terminal and run:
 
 ### 2. **Install Dependencies**
 
-Its recomended to use a virtual environment:
+It's recomended to use a virtual environment:
 
 ```bash
 python -m venv venv
@@ -84,7 +81,7 @@ CONTAINER_MEDIA_PREFIX=
 HOST_MEDIA_PREFIX=
 ```
 
-### 6. Find and note the library id for each library you want poster downloaded for.
+### 6. Find and note the library id for each library you want postes downloaded from.
 
 - Open your Plex Web App
 - Navigate to a library (e.g. Movies, TV Shows)
@@ -111,17 +108,39 @@ This tells the script to replace /data/media... with /volume1/data/media... so i
 
 ## How to use
 
-The script accepts two arguments:
+### Arguments
 
-- `--mode`: Controls how posters are handled. Defaults to skip.
-  - **skip**: Only download if poster.jpg is missing.
-  - **overwrite**: Always replace poster.jpg.
-  - **add**: Keep existing posters and save new ones as poster-1.jpg, poster-2.jpg, etc.
-- `--library`: The Plex library ID (default: 1). You can find this in the Plex Web App URL.
+The script accepts several arguments:
 
-### Example
+- `--mode`: Controls how artwork files are handled. Defaults to `skip`.
+  - **skip**: Only download if the file doesn't already exist.
+  - **overwrite**: Always replace existing files.
+  - **add**: Keep existing files and save new ones as `poster-1.jpg`, `fanart-1.jpg`, etc.
+- `--library`: The Plex library ID to download from (default: `1`). You can find this in the Plex Web App URL.
+- `--posters`: Download `poster.jpg`.
+- `--fanart`: Download `fanart.jpg`.
 
-- `python3 download_posters.py --mode=skip --library=3`
+### Examples
+
+> 📝 Replace `--library=3` with the actual ID of the Plex library you want to target.
+>
+> You can find this by opening the Plex Web App and selecting a library — the number at the end of the URL is the library ID.
+>
+> Example: `http://localhost:32400/web/index.html#!/library/sections/3` → Library ID = `3`
+>
+> If you only have one library, it's usually Movies (`--library=1`), and you can omit the `--library` argument entirely.
+
+#### Download posters for movies you don't yethave a `poster.jpg` for:
+
+- `python3 download_posters.py --library=3 --posters`
+
+#### Add additional poster and fanart images without overwriting existing ones:
+
+- `python3 download_posters.py --mode=add --library=3 --posters --fanart`
+
+#### Overwrite all existing posters and fanart:
+
+- `python3 download_posters.py --mode=overwrite --library=3 --posters --fanart`
 
 ## Disclaimer
 

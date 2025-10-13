@@ -14,6 +14,20 @@ import requests
 import shutil
 import xml.etree.ElementTree as ET
 
+try:
+    from colorama import Fore, Style, init
+
+    init(autoreset=True)
+except ImportError:
+
+    class Dummy:
+        def __getattr__(self, _):
+            return ""
+
+    Fore = Style = Dummy()
+
+init(autoreset=True)
+
 load_dotenv()
 
 PLEX_URL = os.getenv("PLEX_URL")
@@ -21,23 +35,22 @@ PLEX_TOKEN = os.getenv("PLEX_TOKEN")
 CONTAINER_MEDIA_PREFIX = os.getenv("CONTAINER_MEDIA_PREFIX", "")
 HOST_MEDIA_PREFIX = os.getenv("HOST_MEDIA_PREFIX", "")
 
-parser = argparse.ArgumentParser(description="Download Plex posters.")
-parser.add_argument(
-    "--mode",
-    choices=["skip", "overwrite", "add"],
-    default="skip",
-    help="Poster handling mode: skip (default), overwrite, or add new poster file",
-)
-parser.add_argument(
-    "--library",
-    type=int,
-    default=1,
-    help="Plex library section ID to pull posters from (default: 1)",
-)
-args = parser.parse_args()
+
+def check_required_env():
+    """Checks that all required environment variables are set, and exits with an error if any are missing."""
+    missing = []
+    if not PLEX_URL:
+        missing.append("PLEX_URL")
+    if not PLEX_TOKEN:
+        missing.append("PLEX_TOKEN")
+    if missing:
+        print(f"Error: Missing environment variable(s): {', '.join(missing)}")
+        print("Please set them in your .env file.")
+        exit(1)
 
 
 def get_all_media(id: int) -> Optional[ET.Element]:
+    """Fetches all media items from a Plex library section by ID."""
     response = requests.get(
         f"{PLEX_URL}/library/sections/{id}/all?X-Plex-Token={PLEX_TOKEN}"
     )
@@ -49,6 +62,7 @@ def get_all_media(id: int) -> Optional[ET.Element]:
 
 
 def get_media_path(video_tag: ET.Element) -> Optional[str]:
+    """Extracts the directory path of the media file from a Plex metadata XML element."""
     media_tag = video_tag.find("Media")
     if media_tag is None:
         return None
@@ -76,6 +90,7 @@ def resolve_nas_path(container_path: str) -> str:
 
 
 def get_poster_url(video_tag: ET.Element) -> Optional[str]:
+    """Constructs the full URL to download the poster for a media item."""
     poster = video_tag.get("thumb")
     if poster:
         return f"{PLEX_URL}{poster}?X-Plex-Token={PLEX_TOKEN}"
@@ -83,32 +98,41 @@ def get_poster_url(video_tag: ET.Element) -> Optional[str]:
         return None
 
 
-def next_filename(path: str, mode: str) -> Optional[str]:
-    """Determines the appropriate filename to save a poster image, based on the specified mode."""
+def get_fanart_url(video_tag: ET.Element) -> Optional[str]:
+    """Constructs the full URL to download the fanart for a media item."""
+    art = video_tag.get("art")
+    if art:
+        return f"{PLEX_URL}{art}?X-Plex-Token={PLEX_TOKEN}"
+    else:
+        return None
 
-    base_path = f"{path}/poster.jpg"
+
+def resolve_output_path(
+    path: str, mode: str, basename: str = "poster.jpg"
+) -> Optional[str]:
+    """Determines the appropriate filename to save an image, based on the specified mode."""
+
+    base_path = os.path.join(path, basename)
 
     if mode == "overwrite":
         return base_path
-
     if mode == "skip":
         return base_path if not os.path.exists(base_path) else None
-
     if mode == "add":
         if not os.path.exists(base_path):
             return base_path
-
+        name, ext = os.path.splitext(basename)
         i = 1
         while True:
-            new_path = f"{path}/poster-{i}.jpg"
+            new_path = os.path.join(path, f"{name}-{i}{ext}")
             if not os.path.exists(new_path):
                 return new_path
             i += 1
-
     return None
 
 
-def download_poster(poster_url: str, path: str) -> None:
+def download_image(poster_url: str, path: str) -> None:
+    """Downloads an image from a given URL and saves it to the specified local path."""
     response = requests.get(poster_url, stream=True)
     if response.status_code == 200:
         with open(path, "wb") as f:
@@ -118,33 +142,172 @@ def download_poster(poster_url: str, path: str) -> None:
         print(f"Couldn't download poster. Status code: {response.status_code}")
 
 
-# Fetch all media items from the selected Plex library
-root = get_all_media(args.library)
-if root is None:
-    print(f"Failed to retrieve media for library ID {args.library}")
-    exit(1)
+def log_output_str(filename, title, dest_path) -> str:
+    """Prints a formatted success message when an image is downloaded."""
+    if filename == "fanart.jpg":
+        print(
+            f"{Fore.GREEN}Downloading {Fore.LIGHTCYAN_EX}{filename}{Style.RESET_ALL} {Fore.WHITE}for {Style.BRIGHT}{Fore.WHITE}'{title}'{Style.RESET_ALL} {Fore.WHITE}→ {Fore.BLUE}{dest_path}"
+        )
+    if filename == "poster.jpg":
+        print(
+            f"{Fore.GREEN}Downloading {Fore.CYAN}{filename}{Style.RESET_ALL} {Fore.WHITE}for {Style.BRIGHT}{Fore.WHITE}'{title}'{Style.RESET_ALL} {Fore.WHITE}→ {Fore.BLUE}{dest_path}"
+        )
 
-# Iterate through each movie in the library
-for video_tag in root.findall("Video"):
-    # Get the file path of the media item
-    media_path = get_media_path(video_tag)
-    if not media_path:
-        print("The path to the media was not found.")
-        continue
 
-    # Convert container path to host path if needed
-    media_path = resolve_nas_path(media_path)
+def handle_artwork_download(kind, video_tag, media_path, mode):
+    """
+    Handles downloading either a poster or fanart image for a media item.
 
-    # Determine the appropriate filename based on mode
-    poster_path = next_filename(media_path, args.mode)
-    if not poster_path:
-        print(f"Skipping poster: already exists at {media_path}/poster.jpg")
-        continue
+    Args:
+        kind: 'poster' or 'fanart'
+        video_tag: Plex metadata XML element
+        media_path: filesystem path to save the image
+        mode: overwrite / skip / add
+    """
+    get_url = get_poster_url if kind == "poster" else get_fanart_url
+    filename = "poster.jpg" if kind == "poster" else "fanart.jpg"
 
-    # Get the poster image URL and download it
-    poster_url = get_poster_url(video_tag)
-    if poster_url:
-        print(f"Downloading to: {poster_path}")
-        download_poster(poster_url, poster_path)
-    else:
-        print("No poster URL found.")
+    url = get_url(video_tag)
+    dest_path = resolve_output_path(media_path, mode, filename)
+
+    title = video_tag.get("title", "Unknown Title")
+
+    if not dest_path and mode == "skip":
+        return "skipped"
+    elif url and dest_path:
+        download_image(url, dest_path)
+        log_output_str(filename, title, dest_path)
+        return "downloaded"
+    return "none"
+
+
+def get_library_name(library_id: int) -> Optional[str]:
+    """Returns the human-readable name of a Plex library given its numeric ID."""
+    response = requests.get(f"{PLEX_URL}/library/sections?X-Plex-Token={PLEX_TOKEN}")
+    if response.ok:
+        root = ET.fromstring(response.content)
+        for directory in root.findall("Directory"):
+            if directory.get("key") == str(library_id):
+                return directory.get("title")
+    return None
+
+
+def print_summary(
+    args,
+    library_name,
+    poster_downloaded,
+    poster_skipped,
+    fanart_downloaded,
+    fanart_skipped,
+):
+    """Prints a summary of how many posters/fanart images were downloaded or skipped."""
+    if args.posters or args.fanart:
+        print(
+            f"\n{Style.BRIGHT}Summary for Library: {Fore.MAGENTA}{library_name}"
+            f"\n{Fore.WHITE}==============================================================="
+        )
+        if args.posters:
+            print(f"Posters downloaded: {Style.BRIGHT}{poster_downloaded}")
+            if args.mode == "skip":
+                print(f"Posters skipped: {Style.BRIGHT}{poster_skipped}")
+        if args.fanart:
+            print(f"Fanart downloaded: {Style.BRIGHT}{fanart_downloaded}")
+            if args.mode == "skip":
+                print(f"Fanart skipped: {Style.BRIGHT}{fanart_skipped}")
+        print()
+
+
+# ==================================================================================================
+# Main Entry Point
+# ==================================================================================================
+
+
+def main():
+    check_required_env()
+
+    # =========================
+    # Argument Parsing
+    # =========================
+
+    parser = argparse.ArgumentParser(
+        description="Download poster.jpg and fanart.jpg for media items in a Plex library."
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["skip", "overwrite", "add"],
+        default="skip",
+        help="File handling mode: 'skip' (default) skips existing files, 'overwrite' replaces them, 'add' creates additional versions like poster-1.jpg.",
+    )
+    parser.add_argument(
+        "--library",
+        type=int,
+        default=1,
+        help="Plex library section ID to pull artwork from (default: 1)",
+    )
+
+    parser.add_argument(
+        "--posters",
+        action="store_true",
+        default=False,
+        help="Enable poster downloading.",
+    )
+
+    parser.add_argument(
+        "--fanart",
+        action="store_true",
+        default=False,
+        help="Enable fanart downloading.",
+    )
+
+    args = parser.parse_args()
+
+    # =========================
+    # Download Images
+    # =========================
+
+    library_name = get_library_name(args.library) or f"ID {args.library}"
+    root = get_all_media(args.library)
+    if root is None:
+        print(f"Failed to retrieve media for library ID {args.library}")
+        exit(1)
+
+    poster_skipped = poster_downloaded = 0
+    fanart_skipped = fanart_downloaded = 0
+
+    for video_tag in root.findall("Video"):
+        media_path = get_media_path(video_tag)
+        if not media_path:
+            print("The path to the media was not found.")
+            continue
+        media_path = resolve_nas_path(media_path)
+
+        if args.posters:
+            result = handle_artwork_download("poster", video_tag, media_path, args.mode)
+            if result == "skipped":
+                poster_skipped += 1
+            elif result == "downloaded":
+                poster_downloaded += 1
+
+        if args.fanart:
+            result = handle_artwork_download("fanart", video_tag, media_path, args.mode)
+            if result == "skipped":
+                fanart_skipped += 1
+            elif result == "downloaded":
+                fanart_downloaded += 1
+
+    # =========================
+    # Summary Output
+    # =========================
+
+    print_summary(
+        args,
+        library_name,
+        poster_downloaded,
+        poster_skipped,
+        fanart_downloaded,
+        fanart_skipped,
+    )
+
+
+if __name__ == "__main__":
+    main()

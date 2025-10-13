@@ -192,6 +192,62 @@ def get_library_name(library_id: int) -> Optional[str]:
     return None
 
 
+def get_plex_response(endpoint: str, params: dict = None) -> requests.Response:
+    """
+    Makes a raw GET request to a Plex API endpoint and returns the response object.
+
+    Args:
+        endpoint (str): The API path, e.g. "/library/sections"
+        params (dict, optional): Additional query parameters.
+
+    Returns:
+        requests.Response: The raw response object from the Plex API.
+    """
+    url = f"{PLEX_URL}{endpoint}"
+    if params is None:
+        params = {}
+    params["X-Plex-Token"] = PLEX_TOKEN
+
+    response = requests.get(url, params=params)
+    return response
+
+
+def list_plex_libraries():
+    """
+    Fetches and prints a formatted list of Plex libraries (title, type, and ID), sorted by ID.
+    """
+    response = get_plex_response("/library/sections")
+    if not response.ok:
+        print(f"Failed to fetch libraries: {response.status_code}")
+        return
+
+    root = ET.fromstring(response.content)
+
+    # Collect libraries into a list of tuples
+    libraries = []
+    for directory in root.findall("Directory"):
+        title = directory.get("title")
+        lib_type = directory.get("type")
+        lib_id = directory.get("key")
+        libraries.append((int(lib_id), title, lib_type))
+
+    # Sort by lib_id (numeric)
+    libraries.sort()
+
+    print(
+        f"\n\n{Style.BRIGHT}Available Plex Libraries:"
+        f"\n{Style.BRIGHT}{Fore.WHITE}==============================================================="
+    )
+
+    for lib_id, title, lib_type in libraries:
+        print(
+            f"{Style.BRIGHT}{Fore.MAGENTA}{title:<30}{Style.RESET_ALL}"
+            f"{Fore.YELLOW}type: {lib_type:<8}  "
+            f"{Fore.WHITE}library: {Style.BRIGHT}{lib_id}"
+        )
+    print("\n")
+
+
 def print_summary(
     args,
     library_name,
@@ -203,7 +259,7 @@ def print_summary(
     """Prints a summary of how many posters/fanart images were downloaded or skipped."""
     if args.posters or args.fanart:
         print(
-            f"\n{Style.BRIGHT}Summary for Library: {Fore.MAGENTA}{library_name}"
+            f"\n{Style.BRIGHT}Download Summary for Library: {Fore.MAGENTA}{library_name}"
             f"\n{Fore.WHITE}==============================================================="
         )
         if args.posters:
@@ -214,7 +270,7 @@ def print_summary(
             print(f"Fanart downloaded: {Style.BRIGHT}{fanart_downloaded}")
             if args.mode == "skip":
                 print(f"Fanart skipped: {Style.BRIGHT}{fanart_skipped}")
-        print()
+        print("\n\n")
 
 
 # ==================================================================================================
@@ -230,8 +286,23 @@ def main():
     # =========================
 
     parser = argparse.ArgumentParser(
-        description="Download poster.jpg and fanart.jpg for media items in a Plex library."
+        description="""
+    Download poster.jpg and/or fanart.jpg for media items from a Plex library.
+
+    Supports configurable overwrite modes, per-artwork-type toggling, and results summary.
+
+    Use --list-libraries to view available libraries before downloading.
+
+    Examples:
+    python download_posters.py --list-libraries
+    python download_posters.py --posters --fanart
+    python download_posters.py --library 3 --posters
+    python download_posters.py --library 4 --mode overwrite --fanart
+    python download_posters.py --library 2 --mode add --posters --fanart
+    """,
+        formatter_class=argparse.RawTextHelpFormatter,
     )
+
     parser.add_argument(
         "--mode",
         choices=["skip", "overwrite", "add"],
@@ -257,6 +328,13 @@ def main():
         action="store_true",
         default=False,
         help="Enable fanart downloading.",
+    )
+
+    parser.add_argument(
+        "--list-libraries",
+        action="store_true",
+        default=False,
+        help="List available plex library id's.",
     )
 
     args = parser.parse_args()
@@ -294,6 +372,9 @@ def main():
                 fanart_skipped += 1
             elif result == "downloaded":
                 fanart_downloaded += 1
+
+    if args.list_libraries:
+        list_plex_libraries()
 
     # =========================
     # Summary Output

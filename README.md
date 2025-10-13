@@ -10,14 +10,15 @@ Parts of the logic and some wording were adapted from his work. This version has
 
 ### Notable Features & Enhancements
 
-- Supports both `poster.jpg` and `fanart.jpg` downloads
-- Poster handling modes via `--mode`: `skip`, `overwrite`, or `add`
-- Image type inclusion flags: `--posters` and `--fanart`
-- Configurable Plex library via `--library`
+- Supports downloading both `poster.jpg` and `fanart.jpg`
+- Flexible file handling via `--mode`: `skip`, `overwrite`, or `add`
+- Artwork inclusion flags: `--posters` and `--fanart`
+- Easily list Plex libraries with `--list-libraries`
+- Select Plex library via `--library`
 - Environment variable support via `.env`:
-  - `PLEX_URL`, `PLEX_TOKEN`
-  - `CONTAINER_MEDIA_PREFIX`, `HOST_MEDIA_PREFIX` (optional path mapping)
-- Clean, modular code with helpful output and error handling
+  - `PLEX_URL`, `PLEX_TOKEN` (required)
+  - `CONTAINER_MEDIA_PREFIX`, `HOST_MEDIA_PREFIX` (optional for path mapping)
+- Clean, modular code with clear output and helpful error handling
 
 ## Overview
 
@@ -81,14 +82,6 @@ CONTAINER_MEDIA_PREFIX=
 HOST_MEDIA_PREFIX=
 ```
 
-### 6. Find and note the library id for each library you want postes downloaded from.
-
-- Open your Plex Web App
-- Navigate to a library (e.g. Movies, TV Shows)
-- Look at the URL. The ID is the number at the end:
-  - `...library?source=1`
-  - In this case the library ID = 1
-
 ### 7. (Optional) Map Container Paths to NAS Paths
 
 If you’re running Plex in Docker and your media files are stored outside the container, Plex will report file paths like: `/data/media/Movies/Your Movie (2020)`
@@ -116,29 +109,30 @@ The script accepts several arguments:
   - **skip**: Only download if the file doesn't already exist.
   - **overwrite**: Always replace existing files.
   - **add**: Keep existing files and save new ones as `poster-1.jpg`, `fanart-1.jpg`, etc.
-- `--library`: The Plex library ID to download from (default: `1`). You can find this in the Plex Web App URL.
+- `--library`: The Plex library ID to download from (default: `1`). (use `--list-libraries` to find your ID's)
 - `--posters`: Download `poster.jpg`.
 - `--fanart`: Download `fanart.jpg`.
+- `--list-libraries`: Print a list of all available Plex libraries (title, type, and ID). Useful for discovering the correct `--library` value before downloading.
+
+### How to find your Plex Library ID
+
+Run the script with only the `--list-libraries` before downloading to see all available library names with their corrisponding library ID's:
+
+```bash
+python download_posters.py --list-libraries
+```
 
 ### Examples
 
-> 📝 Replace `--library=3` with the actual ID of the Plex library you want to target.
->
-> You can find this by opening the Plex Web App and selecting a library — the number at the end of the URL is the library ID.
->
-> Example: `http://localhost:32400/web/index.html#!/library/sections/3` → Library ID = `3`
->
-> If you only have one library, it's usually Movies (`--library=1`), and you can omit the `--library` argument entirely.
+#### Download initial posters for movies in library 1 (default library):
 
-#### Download posters for movies you don't yethave a `poster.jpg` for:
+- `python3 download_posters.py --posters`
 
-- `python3 download_posters.py --library=3 --posters`
-
-#### Add additional poster and fanart images without overwriting existing ones:
+#### Add additional poster and fanart images to library 3:
 
 - `python3 download_posters.py --mode=add --library=3 --posters --fanart`
 
-#### Overwrite all existing posters and fanart:
+#### Overwrite all existing posters and fanart in library 3:
 
 - `python3 download_posters.py --mode=overwrite --library=3 --posters --fanart`
 

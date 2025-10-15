@@ -37,7 +37,10 @@ HOST_MEDIA_PREFIX = os.getenv("HOST_MEDIA_PREFIX", "")
 
 
 def check_required_env():
-    """Checks that all required environment variables are set, and exits with an error if any are missing."""
+    """
+    Checks that all required environment variables are set, and exits with an error if any are
+    missing.
+    """
     missing = []
     if not PLEX_URL:
         missing.append("PLEX_URL")
@@ -51,9 +54,7 @@ def check_required_env():
 
 def get_all_media(id: int) -> Optional[ET.Element]:
     """Fetches all media items from a Plex library section by ID."""
-    response = requests.get(
-        f"{PLEX_URL}/library/sections/{id}/all?X-Plex-Token={PLEX_TOKEN}"
-    )
+    response = requests.get(f"{PLEX_URL}/library/sections/{id}/all?X-Plex-Token={PLEX_TOKEN}")
     if response.ok:
         root = ET.fromstring(response.content)
         return root
@@ -107,9 +108,7 @@ def get_fanart_url(video_tag: ET.Element) -> Optional[str]:
         return None
 
 
-def resolve_output_path(
-    path: str, mode: str, basename: str = "poster.jpg"
-) -> Optional[str]:
+def resolve_output_path(path: str, mode: str, basename: str = "poster.jpg") -> Optional[str]:
     """Determines the appropriate filename to save an image, based on the specified mode."""
 
     base_path = os.path.join(path, basename)
@@ -146,11 +145,13 @@ def log_output_str(filename, title, dest_path) -> str:
     """Prints a formatted success message when an image is downloaded."""
     if filename == "fanart.jpg":
         print(
-            f"{Fore.GREEN}Downloading {Fore.LIGHTCYAN_EX}{filename}{Style.RESET_ALL} {Fore.WHITE}for {Style.BRIGHT}{Fore.WHITE}'{title}'{Style.RESET_ALL} {Fore.WHITE}→ {Fore.BLUE}{dest_path}"
+            f"{Fore.GREEN}Downloading {Fore.LIGHTCYAN_EX}{filename}{Style.RESET_ALL} {Fore.WHITE}for "
+            f"{Style.BRIGHT}{Fore.WHITE}'{title}'{Style.RESET_ALL} {Fore.WHITE}→ {Fore.BLUE}{dest_path}"
         )
     if filename == "poster.jpg":
         print(
-            f"{Fore.GREEN}Downloading {Fore.CYAN}{filename}{Style.RESET_ALL} {Fore.WHITE}for {Style.BRIGHT}{Fore.WHITE}'{title}'{Style.RESET_ALL} {Fore.WHITE}→ {Fore.BLUE}{dest_path}"
+            f"{Fore.GREEN}Downloading {Fore.CYAN}{filename}{Style.RESET_ALL} {Fore.WHITE}for "
+            f"{Style.BRIGHT}{Fore.WHITE}'{title}'{Style.RESET_ALL} {Fore.WHITE}→ {Fore.BLUE}{dest_path}"
         )
 
 
@@ -210,6 +211,48 @@ def get_plex_response(endpoint: str, params: dict = None) -> requests.Response:
 
     response = requests.get(url, params=params)
     return response
+
+
+def get_library_metadata(library_id: int) -> Optional[dict]:
+    """
+    Returns metadata for a Plex library by ID, including title and type.
+
+    Returns:
+        dict with 'id', 'title', and 'type', or None if not found.
+    """
+    response = get_plex_response("/library/sections")
+    if response.ok:
+        root = ET.fromstring(response.content)
+        for directory in root.findall("Directory"):
+            if directory.get("key") == str(library_id):
+                return {
+                    "id": library_id,
+                    "title": directory.get("title"),
+                    "type": directory.get("type"),
+                }
+    return None
+
+
+def get_path_from_first_episode(show_rating_key: str) -> Optional[str]:
+    """
+    Given a show's rating key, fetches its first episode and extracts the file path.
+    """
+    season_resp = get_plex_response(f"/library/metadata/{show_rating_key}/children")
+    if not season_resp.ok:
+        return None
+    season_root = ET.fromstring(season_resp.content)
+
+    for season in season_root.findall("Directory"):
+        season_key = season.get("ratingKey")
+        if not season_key:
+            continue
+        episode_resp = get_plex_response(f"/library/metadata/{season_key}/children")
+        if not episode_resp.ok:
+            continue
+        episode_root = ET.fromstring(episode_resp.content)
+        for episode in episode_root.findall("Video"):
+            return get_media_path(episode)  # this uses your existing logic
+    return None
 
 
 def list_plex_libraries():
@@ -343,7 +386,14 @@ def main():
     # Download Images
     # =========================
 
-    library_name = get_library_name(args.library) or f"ID {args.library}"
+    library = get_library_metadata(args.library)
+    if not library:
+        print(f"Failed to retrieve metadata ofr library ID {args.library}")
+        exit(1)
+
+    library_name = library["title"]
+    library_type = library["type"]
+
     root = get_all_media(args.library)
     if root is None:
         print(f"Failed to retrieve media for library ID {args.library}")
@@ -352,26 +402,81 @@ def main():
     poster_skipped = poster_downloaded = 0
     fanart_skipped = fanart_downloaded = 0
 
-    for video_tag in root.findall("Video"):
-        media_path = get_media_path(video_tag)
-        if not media_path:
-            print("The path to the media was not found.")
-            continue
-        media_path = resolve_nas_path(media_path)
+    if library_type == "movie":
+        for video_tag in root.findall("Video"):
+            media_path = get_media_path(video_tag)
+            if not media_path:
+                print("The path to the media was not found.")
+                continue
+            media_path = resolve_nas_path(media_path)
 
-        if args.posters:
-            result = handle_artwork_download("poster", video_tag, media_path, args.mode)
-            if result == "skipped":
-                poster_skipped += 1
-            elif result == "downloaded":
-                poster_downloaded += 1
+            if args.posters:
+                result = handle_artwork_download("poster", video_tag, media_path, args.mode)
+                if result == "skipped":
+                    poster_skipped += 1
+                elif result == "downloaded":
+                    poster_downloaded += 1
 
-        if args.fanart:
-            result = handle_artwork_download("fanart", video_tag, media_path, args.mode)
-            if result == "skipped":
-                fanart_skipped += 1
-            elif result == "downloaded":
-                fanart_downloaded += 1
+            if args.fanart:
+                result = handle_artwork_download("fanart", video_tag, media_path, args.mode)
+                if result == "skipped":
+                    fanart_skipped += 1
+                elif result == "downloaded":
+                    fanart_downloaded += 1
+
+    elif library_type == "show":
+        # === Show logic ===
+        for show_tag in root.findall("Directory"):
+            show_title = show_tag.get("title", "Unknown Show")
+            rating_key = show_tag.get("ratingKey")
+            if not rating_key:
+                continue
+
+            # 1. Fetch metadata to get poster
+            show_meta = get_plex_response(f"/library/metadata/{rating_key}")
+            if not show_meta.ok:
+                continue
+            meta_root = ET.fromstring(show_meta.content)
+            video_tag = meta_root.find("Metadata")
+            if not video_tag:
+                continue
+
+            # 2. Resolve media path (based on first episode)
+            media_path = get_path_from_first_episode(rating_key)
+            if not media_path:
+                print(f"Could not resolve path for show: {show_title}")
+                continue
+            media_path = resolve_nas_path(media_path)
+
+            if args.posters:
+                result = handle_artwork_download("poster", video_tag, media_path, args.mode)
+                if result == "skipped":
+                    poster_skipped += 1
+                elif result == "downloaded":
+                    poster_downloaded += 1
+
+            if args.fanart:
+                result = handle_artwork_download("fanart", video_tag, media_path, args.mode)
+                if result == "skipped":
+                    fanart_skipped += 1
+                elif result == "downloaded":
+                    fanart_downloaded += 1
+
+            # 3. Download season posters
+            season_resp = get_plex_response(f"/library/metadata/{rating_key}/children")
+            if season_resp.ok:
+                season_root = ET.fromstring(season_resp.content)
+                for season in season_root.findall("Directory"):
+                    season_title = season.get("title", "Season")
+                    season_path = os.path.join(media_path, season_title)
+                    if args.posters:
+                        result = handle_artwork_download("poster", season, season_path, args.mode)
+                        if result == "skipped":
+                            poster_skipped += 1
+                        elif result == "downloaded":
+                            poster_downloaded += 1
+    else:
+        print(f"Unsupported library type: {library_type}")
 
     if args.list_libraries:
         list_plex_libraries()

@@ -8,10 +8,11 @@ environment-based configuration, error handling, and improved documentation.
 
 import argparse
 from dotenv import load_dotenv
-from typing import Optional
 import os
+import re
 import requests
 import shutil
+from typing import Optional
 import xml.etree.ElementTree as ET
 
 try:
@@ -143,16 +144,30 @@ def download_image(poster_url: str, path: str) -> None:
 
 def log_output_str(filename, title, dest_path) -> str:
     """Prints a formatted success message when an image is downloaded."""
+    parent_folder = os.path.basename(os.path.dirname(dest_path))
+
+    # Case-insensitive match for folders like "Season 1", "Season 01", etc.
+    is_season_folder = re.match(r"(?i)^season\s+\d+$", parent_folder)
+
     if filename == "fanart.jpg":
         print(
             f"{Fore.GREEN}Downloading {Fore.LIGHTCYAN_EX}{filename}{Style.RESET_ALL} {Fore.WHITE}for "
             f"{Style.BRIGHT}{Fore.WHITE}'{title}'{Style.RESET_ALL} {Fore.WHITE}→ {Fore.BLUE}{dest_path}"
         )
-    if filename == "poster.jpg":
-        print(
-            f"{Fore.GREEN}Downloading {Fore.CYAN}{filename}{Style.RESET_ALL} {Fore.WHITE}for "
-            f"{Style.BRIGHT}{Fore.WHITE}'{title}'{Style.RESET_ALL} {Fore.WHITE}→ {Fore.BLUE}{dest_path}"
-        )
+    elif filename == "poster.jpg":
+        location_type = "season" if is_season_folder else "show"
+        if location_type == "show":
+            print(
+                f"{Fore.GREEN}Downloading {Fore.CYAN}{filename}{Style.RESET_ALL} "
+                f"{Fore.WHITE} {Style.BRIGHT}{Fore.WHITE}'{title}'{Style.RESET_ALL} "
+                f"{Fore.WHITE}→ {Fore.BLUE}{dest_path}"
+            )
+        if location_type == "season":
+            print(
+                f"{Fore.GREEN}Downloading {Fore.CYAN}{filename}{Style.RESET_ALL} "
+                f"{Fore.WHITE}'{title}'"
+                f"{Fore.WHITE}→ {Fore.BLUE}{dest_path}"
+            )
 
 
 def handle_artwork_download(kind, video_tag, media_path, mode):
@@ -238,6 +253,7 @@ def get_path_from_first_episode(show_rating_key: str) -> Optional[str]:
     Given a show's rating key, fetches its first episode and extracts the file path.
     """
     season_resp = get_plex_response(f"/library/metadata/{show_rating_key}/children")
+
     if not season_resp.ok:
         return None
     season_root = ET.fromstring(season_resp.content)
@@ -251,7 +267,8 @@ def get_path_from_first_episode(show_rating_key: str) -> Optional[str]:
             continue
         episode_root = ET.fromstring(episode_resp.content)
         for episode in episode_root.findall("Video"):
-            return get_media_path(episode)  # this uses your existing logic
+            return get_media_path(episode)
+    path = get_media_path(episode)
     return None
 
 
@@ -425,20 +442,19 @@ def main():
                     fanart_downloaded += 1
 
     elif library_type == "show":
-        # === Show logic ===
         for show_tag in root.findall("Directory"):
             show_title = show_tag.get("title", "Unknown Show")
             rating_key = show_tag.get("ratingKey")
             if not rating_key:
                 continue
 
-            # 1. Fetch metadata to get poster
+            # Fetch metadata to get poster
             show_meta = get_plex_response(f"/library/metadata/{rating_key}")
             if not show_meta.ok:
                 continue
             meta_root = ET.fromstring(show_meta.content)
-            video_tag = meta_root.find("Metadata")
-            if not video_tag:
+            video_tag = meta_root.find("Directory")
+            if video_tag is None:
                 continue
 
             # 2. Resolve media path (based on first episode)
@@ -446,7 +462,7 @@ def main():
             if not media_path:
                 print(f"Could not resolve path for show: {show_title}")
                 continue
-            media_path = resolve_nas_path(media_path)
+            media_path = os.path.dirname(resolve_nas_path(media_path))
 
             if args.posters:
                 result = handle_artwork_download("poster", video_tag, media_path, args.mode)
@@ -462,13 +478,64 @@ def main():
                 elif result == "downloaded":
                     fanart_downloaded += 1
 
-            # 3. Download season posters
+            # 3. Season-level poster download
             season_resp = get_plex_response(f"/library/metadata/{rating_key}/children")
             if season_resp.ok:
                 season_root = ET.fromstring(season_resp.content)
+                season_root_path = media_path
+
+                try:
+                    folders = [
+                        d
+                        for d in os.listdir(season_root_path)
+                        if os.path.isdir(os.path.join(season_root_path, d))
+                    ]
+                except FileNotFoundError:
+                    print(f"[ERROR] Could not list folders in {season_root_path}")
+                    folders = []
+
                 for season in season_root.findall("Directory"):
-                    season_title = season.get("title", "Season")
-                    season_path = os.path.join(media_path, season_title)
+
+                    season_title = season.get("title", "").strip()
+
+                    # Only handle "Season X" style titles
+                    match = re.match(r"Season\s+(\d+)", season_title, re.IGNORECASE)
+                    if not match:
+                        if season_title.lower() == "all episodes":
+                            continue
+                        print(f"[WARN] Skipping non-standard season title: '{season_title}'")
+                        continue
+
+                    season_num = int(match.group(1))
+                    possible_names = [f"Season {season_num}", f"Season {season_num:02d}"]
+
+                    # Read folders once
+                    try:
+                        folders = [
+                            d
+                            for d in os.listdir(season_root_path)
+                            if os.path.isdir(os.path.join(season_root_path, d))
+                        ]
+                    except FileNotFoundError:
+                        print(f"[ERROR] Could not list folders in {season_root_path}")
+                        folders = []
+
+                    # Try to find a match in folder names (case-insensitive)
+                    matching_folder = next(
+                        (
+                            f
+                            for f in folders
+                            if f.lower() in [name.lower() for name in possible_names]
+                        ),
+                        None,
+                    )
+
+                    if matching_folder:
+                        season_path = os.path.join(season_root_path, matching_folder)
+                    else:
+                        print(f"[WARN] No folder matched season '{season_title}'")
+                        continue
+
                     if args.posters:
                         result = handle_artwork_download("poster", season, season_path, args.mode)
                         if result == "skipped":

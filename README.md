@@ -54,7 +54,7 @@ pip install -r requirements.txt
 Or just install manually:
 
 ```bash
-pip install requests python-dotenv
+pip install requests python-dotenv colorama
 ```
 
 ### 3. Get your Plex server URL (PLEX_URL)

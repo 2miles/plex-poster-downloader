@@ -10,7 +10,7 @@ Parts of the logic and some wording were adapted from his work. This version has
 
 ### Notable Features & Enhancements
 
-- Supports downloading both `poster.jpg` and `fanart.jpg`
+- Supports posters and fanart for both Movies and TV Shows (incuding seasons)
 - Flexible file handling via `--mode`: `skip`, `overwrite`, or `add`
 - Artwork inclusion flags: `--posters` and `--fanart`
 - Easily list Plex libraries with `--list-libraries`
@@ -26,7 +26,7 @@ I wanted a better way of [managing my movie posters](https://www.plexopedia.com/
 
 The issue is that posters (and fanart) that are downloaded from Plex or uploaded using the Web app are stored in bundles. These are folders in the [Plex data directory](https://www.plexopedia.com/plex-media-server/general/data-directory/) that contain all the files for the movie, including artwork, but aren’t ideal for manual control, backup, or portability.
 
-This script downloads all the movie posters and fanart images for items currently selected in your Plex library and saves them in their respective movie folder as `poster.jpg` and `fanart.jpg`. This ensures you have a local copy of each image saved in the correct movie folder — one that Plex will detect and use instead of automatically selecting its own.
+This script downloads all the movie, TV show, and season posters/fanart images for items in a given Plex library and saves them in their respective movie folder as `poster.jpg` and `fanart.jpg`. This ensures you have a local copy of each image saved in the correct movie folder — one that Plex will detect and use instead of automatically selecting its own.
 
 You can choose to include specific image types with `--posters` and `--fanart`
 
@@ -135,6 +135,34 @@ python download_posters.py --list-libraries
 #### Overwrite all existing posters and fanart in library 3:
 
 - `python3 download_posters.py --mode=overwrite --library=3 --posters --fanart`
+
+### Folder Naming for TV Shows
+
+To correctly download and save season and specials posters, your TV library folders must follow Plex’s standard naming convention. This is how the script identifies the correct subfolders for each season.
+
+Valid season folder names include:
+
+```
+Season 1
+Season 01
+1
+01
+```
+
+The specials folder must be named one of:
+
+```
+Specials
+Season 0
+Season 00
+```
+
+These naming patterns are the same ones Plex expects for matching metadata.
+If your folder names differ (e.g. S01, Season One), season posters may not download or may be skipped with a warning like:
+
+```
+[WARN] Skipping non-standard season title: The Simpsons Season One
+```
 
 ## Disclaimer
 

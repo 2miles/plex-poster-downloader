@@ -156,13 +156,15 @@ def log_output_str(filename, title, dest_path) -> str:
         )
     elif filename == "poster.jpg":
         location_type = "season" if is_season_folder else "show"
-        if location_type == "show":
+        if location_type == "show" and not title.lower().startswith("specials"):
             print(
                 f"{Fore.GREEN}Downloading {Fore.CYAN}{filename}{Style.RESET_ALL} "
                 f"{Fore.WHITE} {Style.BRIGHT}{Fore.WHITE}'{title}'{Style.RESET_ALL} "
                 f"{Fore.WHITE}→ {Fore.BLUE}{dest_path}"
             )
-        if location_type == "season":
+        if location_type == "season" or (
+            location_type == "show" and title.lower().startswith("specials")
+        ):
             print(
                 f"{Fore.GREEN}Downloading {Fore.CYAN}{filename}{Style.RESET_ALL} "
                 f"{Fore.WHITE}'{title}'"
@@ -495,32 +497,20 @@ def main():
                     folders = []
 
                 for season in season_root.findall("Directory"):
-
                     season_title = season.get("title", "").strip()
 
-                    # Only handle "Season X" style titles
-                    match = re.match(r"Season\s+(\d+)", season_title, re.IGNORECASE)
-                    if not match:
-                        if season_title.lower() == "all episodes":
+                    if season_title.lower() in ["specials", "season 0", "season 00"]:
+                        possible_names = ["Specials", "Season 00", "Season 0"]
+                    else:
+                        # handle "Season X" style titles
+                        match = re.match(r"Season\s+(\d+)", season_title, re.IGNORECASE)
+                        if not match:
+                            if season_title.lower() == "all episodes":
+                                continue
+                            print(f"[WARN] Skipping non-standard season title: '{season_title}'")
                             continue
-                        print(f"[WARN] Skipping non-standard season title: '{season_title}'")
-                        continue
-
-                    season_num = int(match.group(1))
-                    possible_names = [f"Season {season_num}", f"Season {season_num:02d}"]
-
-                    # Read folders once
-                    try:
-                        folders = [
-                            d
-                            for d in os.listdir(season_root_path)
-                            if os.path.isdir(os.path.join(season_root_path, d))
-                        ]
-                    except FileNotFoundError:
-                        print(f"[ERROR] Could not list folders in {season_root_path}")
-                        folders = []
-
-                    # Try to find a match in folder names (case-insensitive)
+                        season_num = int(match.group(1))
+                        possible_names = [f"Season {season_num}", f"Season {season_num:02d}"]
                     matching_folder = next(
                         (
                             f
@@ -530,11 +520,11 @@ def main():
                         None,
                     )
 
-                    if matching_folder:
-                        season_path = os.path.join(season_root_path, matching_folder)
-                    else:
+                    if not matching_folder:
                         print(f"[WARN] No folder matched season '{season_title}'")
                         continue
+
+                    season_path = os.path.join(season_root_path, matching_folder)
 
                     if args.posters:
                         result = handle_artwork_download("poster", season, season_path, args.mode)

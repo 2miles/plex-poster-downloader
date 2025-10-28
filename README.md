@@ -2,23 +2,20 @@
 
 ## Acknowledgments
 
-This script is based on a blog post and original script by [Paul Salmon (TechieGuy12)](https://github.com/TechieGuy12):
+Originally inspired by a script by [Paul Salmon (TechieGuy12)](https://github.com/TechieGuy12):
 
 - Blog post: [Download Movie Posters from a Plex Server](https://www.plexopedia.com/blog/download-movie-posters-from-plex-server/)
 
-Parts of the logic and some wording were adapted from his work. This version has been significantly expanded and refactored for additional flexibility and clarity.
-
-### Notable Features & Enhancements
+### Notable Features
 
 - Supports posters and fanart for both Movies and TV Shows (incuding seasons)
 - Flexible file handling via `--mode`: `skip`, `overwrite`, or `add`
-- Artwork inclusion flags: `--posters` and `--fanart`
+- Artwork type flags: `--posters` and `--fanart`
 - Easily list Plex libraries with `--list-libraries`
-- Select Plex library via `--library`
+- Target Plex librarys via `--library`
 - Environment variable support via `.env`:
   - `PLEX_URL`, `PLEX_TOKEN` (required)
   - `CONTAINER_MEDIA_PREFIX`, `HOST_MEDIA_PREFIX` (optional for path mapping)
-- Clean, modular code with clear output and helpful error handling
 
 ## Overview
 

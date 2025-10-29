@@ -67,10 +67,10 @@ def parse_args():
 
     Examples:
     python download_posters.py --list-libraries
-    python download_posters.py --posters --fanart
-    python download_posters.py --library 3 --posters
+    python download_posters.py --poster --fanart
+    python download_posters.py --library 3 --poster
     python download_posters.py --library 4 --mode overwrite --fanart
-    python download_posters.py --library 2 --mode add --posters --fanart
+    python download_posters.py --library 2 --mode add --poster --fanart
     """,
         formatter_class=argparse.RawTextHelpFormatter,
     )
@@ -89,7 +89,7 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--posters",
+        "--poster",
         action="store_true",
         default=False,
         help="Enable poster downloading.",
@@ -163,12 +163,12 @@ def main_download_logic(args):
 
 def print_summary(args, library_name, library_type, counters):
     """Prints a summary of how many posters/fanart images were downloaded or skipped."""
-    if args.posters or args.fanart:
+    if args.poster or args.fanart:
         print(
             f"\n{Style.BRIGHT}Download Summary for Library: {Fore.MAGENTA}{library_name}"
             f"\n{Fore.WHITE}==============================================================="
         )
-        if args.posters:
+        if args.poster:
             print(f"Posters downloaded: {Style.BRIGHT}{counters['poster']['downloaded']}")
             if args.mode == "skip":
                 print(f"Posters skipped: {Style.BRIGHT}{counters['poster']['skipped']}")
@@ -317,147 +317,287 @@ def handle_show_library(root, args, counters):
 
             season_path = os.path.join(season_root_path, matching_folder)
 
-            if args.posters:
+            if args.poster:
                 result = handle_artwork_download("poster", season, season_path, args.mode)
                 increment_counter(result, counters["poster"])
 
 
+def handle_show_library(root, args, counters):
+    """Main handler for Plex TV show libraries."""
+    for show_tag in root.findall("Directory"):
+        show_title = show_tag.get("title", "Unknown Show")
+        rating_key = show_tag.get("ratingKey")
+        if not rating_key:
+            return
+
+        # --- Fetch show metadata ---
+        show_meta = get_plex_response(f"/library/metadata/{rating_key}")
+        if not show_meta.ok:
+            return
+
+        meta_root = ET.fromstring(show_meta.content)
+        video_tag = meta_root.find("Directory")
+        if video_tag is None:
+            return
+
+        # --- Resolve show path ---
+        media_path = get_path_from_first_episode(rating_key)
+        if not media_path:
+            print(f"Could not resolve path for show: {show_title}")
+            return
+
+        media_path = os.path.dirname(resolve_nas_path(media_path))
+
+        # --- Show-level artwork ---
+        download_artwork(video_tag, media_path, args, counters)
+
+        # --- Season-level artwork ---
+        handle_show_seasons(rating_key, show_title, media_path, args, counters)
+
+
+def handle_show_seasons(rating_key, show_title, media_path, args, counters):
+    """Handles fetching and matching season-level posters."""
+    season_resp = get_plex_response(f"/library/metadata/{rating_key}/children")
+    if not season_resp.ok:
+        return
+
+    season_root = ET.fromstring(season_resp.content)
+    season_root_path = media_path
+    folders = list_subfolders(season_root_path)
+
+    for season in season_root.findall("Directory"):
+        process_season_tag(season, show_title, season_root_path, folders, args, counters)
+
+
+def process_season_tag(season, show_title, season_root_path, folders, args, counters):
+    """Handle a single season's poster download."""
+    season_title = season.get("title", "").strip()
+    possible_names = resolve_possible_season_names(season_title)
+    if not possible_names:
+        return  # handled or skipped in helper
+
+    matching_folder = find_matching_folder(folders, possible_names)
+    if not matching_folder:
+        print_no_season_match_warning(show_title, season_title, season_root_path)
+        return
+
+    season_path = os.path.join(season_root_path, matching_folder)
+
+    if args.poster:
+        result = handle_artwork_download("poster", season, season_path, args.mode)
+        increment_counter(result, counters["poster"])
+
+
+def list_subfolders(root_path):
+    """Return subfolders under a path; handle FileNotFoundError."""
+    try:
+        return [d for d in os.listdir(root_path) if os.path.isdir(os.path.join(root_path, d))]
+    except FileNotFoundError:
+        print(f"[ERROR] Could not list folders in {root_path}")
+        return []
+
+
+def resolve_possible_season_names(season_title):
+    """Return valid folder name variants for a season title."""
+    if season_title.lower() in ["specials", "season 0", "season 00"]:
+        return ["Specials", "Season 00", "Season 0"]
+
+    match = re.match(r"Season\s+(\d+)", season_title, re.IGNORECASE)
+    if not match:
+        if season_title.lower() == "all episodes":
+            return None
+        print(
+            f"{Fore.YELLOW}[WARN]  {Fore.WHITE}Skipping non-standard season title: "
+            f"{Style.BRIGHT}{season_title}{Style.RESET_ALL}"
+        )
+        return None
+
+    season_num = int(match.group(1))
+    return [f"Season {season_num}", f"Season {season_num:02d}"]
+
+
+def find_matching_folder(folders, possible_names):
+    """Find a folder whose name matches one of the expected season names."""
+    return next(
+        (f for f in folders if f.lower() in [n.lower() for n in possible_names]),
+        None,
+    )
+
+
+def print_no_season_match_warning(show_title, season_title, season_root_path):
+    """Warn when no season folder matches."""
+    print(
+        f"{Fore.YELLOW}[WARN]  {Fore.WHITE}No folder matched "
+        f"{Style.BRIGHT}{show_title} {Style.RESET_ALL}{season_title} "
+        f"-- {Fore.BLUE}{season_root_path}"
+    )
+
+
 def handle_music_library(root, args, counters):
     """Handles downloading artist and album artwork for a Plex music library."""
-
     for artist_tag in root.findall("Directory"):
         artist_title = artist_tag.get("title", "Unknown Artist")
         artist_key = artist_tag.get("ratingKey")
         if not artist_key:
-            continue
+            return
 
-        # Resolve path based on first album/track
         artist_path = get_path_from_first_album(artist_key)
         if not artist_path:
             print(f"Could not resolve path for artist: {artist_title}")
-            continue
-
+            return
         artist_path = resolve_nas_path(os.path.dirname(artist_path))
 
-        # --- Artist-level artwork ---
-        if args.posters:
-            thumb = artist_tag.get("thumb")
-            if thumb:
-                result = handle_artwork_download("poster", artist_tag, artist_path, args.mode)
-                increment_counter(result, counters["poster"])
-            else:
-                print(f"{Fore.YELLOW}[WARN]  {Fore.WHITE}No poster found for '{artist_title}'")
+        handle_artist_artwork(artist_tag, artist_title, artist_path, args, counters)
 
-        if args.fanart:
-            art = artist_tag.get("art")
-            if art:
-                result = handle_artwork_download("fanart", artist_tag, artist_path, args.mode)
-                increment_counter(result, counters["fanart"])
-            else:
-                print(f"{Fore.YELLOW}[WARN]  {Fore.WHITE}No fanart found for '{artist_title}'")
+        if args.poster:
+            handle_album_artwork(artist_key, artist_title, artist_path, args, counters)
 
-        # --- Album-level artwork ---
-        if not args.posters:
-            continue  # only download album covers if --posters is active
 
-        album_resp = get_plex_response(f"/library/metadata/{artist_key}/children")
-        if not album_resp.ok:
-            continue
+def handle_artist_artwork(artist_tag, artist_title, artist_path, args, counters):
+    if args.poster:
+        thumb = artist_tag.get("thumb")
+        if thumb:
+            result = handle_artwork_download("poster", artist_tag, artist_path, args.mode)
+            increment_counter(result, counters["poster"])
+        else:
+            print(f"{Fore.YELLOW}[WARN]  {Fore.WHITE}No poster found for '{artist_title}'")
 
-        album_root = ET.fromstring(album_resp.content)
+    if args.fanart:
+        art = artist_tag.get("art")
+        if art:
+            result = handle_artwork_download("fanart", artist_tag, artist_path, args.mode)
+            increment_counter(result, counters["fanart"])
+        else:
+            print(f"{Fore.YELLOW}[WARN]  {Fore.WHITE}No fanart found for '{artist_title}'")
 
-        for album_tag in album_root.findall("Directory"):
-            album_title = album_tag.get("title")
-            album_thumb = album_tag.get("thumb")
 
-            if not album_thumb:
-                print(
-                    f"{Fore.YELLOW}[WARN]  {Fore.WHITE}No cover found for "
-                    f"'{album_title}' ({artist_title})"
-                )
-                continue
+def handle_album_artwork(artist_key, artist_title, artist_path, args, counters):
+    """Handles album-level cover downloads for a single artist."""
+    album_resp = get_plex_response(f"/library/metadata/{artist_key}/children")
+    if not album_resp.ok:
+        return
 
-            sanitized_title = sanitize_filename(album_title)
-            album_path = os.path.join(artist_path, sanitized_title)
+    album_root = ET.fromstring(album_resp.content)
 
-            # --- Folder matching logic (fuzzy match + optional rename) ---
-            if not os.path.isdir(album_path):
-                try:
-                    existing_folders = [
-                        f
-                        for f in os.listdir(artist_path)
-                        if os.path.isdir(os.path.join(artist_path, f))
-                    ]
-                except FileNotFoundError:
-                    existing_folders = []
+    for album_tag in album_root.findall("Directory"):
+        process_album_tag(album_tag, artist_title, artist_path, args, counters)
 
-                matches = difflib.get_close_matches(
-                    sanitized_title.lower(),
-                    [f.lower() for f in existing_folders],
-                    n=1,
-                    cutoff=0.6,
-                )
 
-                if matches:
-                    matching_folder = next(f for f in existing_folders if f.lower() == matches[0])
-                    album_path = os.path.join(artist_path, matching_folder)
+def process_album_tag(album_tag, artist_title, artist_path, args, counters):
+    """Processes one album entry"""
+    album_title = album_tag.get("title")
+    album_thumb = album_tag.get("thumb")
 
-                    if args.auto_rename and args.confirm_rename:
-                        print(
-                            f"\nMatching album title for {artist_title} - {album_title}"
-                            f"\n        Plex title:     {Fore.WHITE}{Style.BRIGHT}{album_title}{Style.RESET_ALL}"
-                            f"\n        Directory name: {matching_folder}"
-                        )
-                    elif args.auto_rename:
-                        print(
-                            f"Renaming album directory to match Plex album title: "
-                            f"\n        Plex title:     {Fore.WHITE}{Style.BRIGHT}{album_title}{Style.RESET_ALL}"
-                            f"\n        Directory name: {matching_folder}"
-                        )
+    if not album_thumb:
+        print(
+            f"{Fore.YELLOW}[WARN]  {Fore.WHITE}No cover found for "
+            f"'{album_title}' ({artist_title})"
+        )
+        return
 
-                    renamed = False
-                    sanitized_title = sanitize_filename(album_title)
+    sanitized_title = sanitize_filename(album_title)
+    album_path = os.path.join(artist_path, sanitized_title)
 
-                    # --- Auto-rename (optional) ---
-                    if args.auto_rename and matching_folder != sanitized_title:
-                        renamed = maybe_rename_folder(
-                            artist_path,
-                            matching_folder,
-                            sanitized_title,
-                            confirm=args.confirm_rename,
-                        )
+    # Folder matching logic — unchanged
+    album_path = resolve_album_path_for_download(
+        album_path, artist_title, album_title, artist_path, args
+    )
+    if not album_path:
+        return
 
-                        # update paths if rename succeeded
-                        if renamed:
-                            matching_folder = sanitized_title
-                            album_path = os.path.join(artist_path, matching_folder)
+    # --- Download cover image (unchanged) ---
+    dest_path = resolve_output_path(album_path, args.mode, "cover.jpg")
+    if not dest_path:
+        increment_counter("skipped", counters["cover"])
+        return
 
-                # proceed with cover download using the correct folder
-                else:
-                    print(
-                        f"{Fore.YELLOW}[WARN]  {Fore.WHITE}No folder matched "
-                        f"{Style.BRIGHT}{artist_title} {Style.RESET_ALL}{album_title} "
-                        f"-- {Fore.BLUE}{artist_path}"
-                    )
-                    continue
+    url = f"{PLEX_URL}{album_thumb}?X-Plex-Token={PLEX_TOKEN}"
+    if not album_thumb or "None" in url:
+        print(
+            f"{Fore.YELLOW}[WARN]{Fore.WHITE} Invalid cover URL for album "
+            f"'{album_title}' ({artist_title})"
+        )
+        return
 
-            # --- Download cover image ---
-            dest_path = resolve_output_path(album_path, args.mode, "cover.jpg")
-            if not dest_path:
-                increment_counter("skipped", counters["cover"])
-                continue
+    download_image(url, dest_path)
+    log_output_str("cover.jpg", album_title, artist_title, dest_path)
+    increment_counter("downloaded", counters["cover"])
 
-            url = f"{PLEX_URL}{album_thumb}?X-Plex-Token={PLEX_TOKEN}"
-            if not album_thumb or "None" in url:
-                print(
-                    f"{Fore.YELLOW}[WARN]{Fore.WHITE} Invalid cover URL for album "
-                    f"'{album_title}' ({artist_title})"
-                )
-                continue
 
-            download_image(url, dest_path)
-            log_output_str("cover.jpg", album_title, artist_title, dest_path)
-            increment_counter("downloaded", counters["cover"])
+def resolve_album_path_for_download(album_path, artist_title, album_title, artist_path, args):
+    """Resolve the correct album folder by fuzzy matching and optional renaming."""
+    sanitized_title = sanitize_filename(album_title)
+
+    if os.path.isdir(album_path):
+        return album_path
+
+    existing_folders = list_existing_folders(artist_path)
+    matches = find_best_match(sanitized_title, existing_folders)
+
+    if not matches:
+        print_no_match_warning(artist_title, album_title, artist_path)
+        return None
+
+    matching_folder = next(f for f in existing_folders if f.lower() == matches[0])
+    album_path = os.path.join(artist_path, matching_folder)
+
+    maybe_print_rename_message(args, artist_title, album_title, matching_folder)
+
+    # --- Auto-rename (optional) ---
+    if args.auto_rename and matching_folder != sanitized_title:
+        renamed = maybe_rename_folder(
+            artist_path,
+            matching_folder,
+            sanitized_title,
+            confirm=args.confirm_rename,
+        )
+        if renamed:
+            matching_folder = sanitized_title
+            album_path = os.path.join(artist_path, matching_folder)
+
+    return album_path
+
+
+def list_existing_folders(artist_path):
+    """Return a list of subfolders under the artist directory."""
+    try:
+        return [f for f in os.listdir(artist_path) if os.path.isdir(os.path.join(artist_path, f))]
+    except FileNotFoundError:
+        return []
+
+
+def find_best_match(sanitized_title, existing_folders):
+    """Return the closest folder match (case-insensitive) using difflib."""
+    return difflib.get_close_matches(
+        sanitized_title.lower(),
+        [f.lower() for f in existing_folders],
+        n=1,
+        cutoff=0.6,
+    )
+
+
+def print_no_match_warning(artist_title, album_title, artist_path):
+    """Prints warning when no folder matches the album title."""
+    print(
+        f"{Fore.YELLOW}[WARN]  {Fore.WHITE}No folder matched "
+        f"{Style.BRIGHT}{artist_title} {Style.RESET_ALL}{album_title} "
+        f"-- {Fore.BLUE}{artist_path}"
+    )
+
+
+def maybe_print_rename_message(args, artist_title, album_title, matching_folder):
+    if args.auto_rename and args.confirm_rename:
+        print(
+            f"\nMatching album title for {artist_title} - {album_title}"
+            f"\n        Plex title:     {Fore.WHITE}{Style.BRIGHT}{album_title}{Style.RESET_ALL}"
+            f"\n        Directory name: {matching_folder}"
+        )
+    elif args.auto_rename:
+        print(
+            f"Renaming album directory to match Plex album title: "
+            f"\n        Plex title:     {Fore.WHITE}{Style.BRIGHT}{album_title}{Style.RESET_ALL}"
+            f"\n        Directory name: {matching_folder}"
+        )
 
 
 # === Plex API Integration ===============================================
@@ -709,7 +849,7 @@ def handle_artwork_download(
 
 
 def download_artwork(tag, path, args, counters):
-    if args.posters:
+    if args.poster:
         result = handle_artwork_download("poster", tag, path, args.mode)
         increment_counter(result, counters["poster"])
     if args.fanart:

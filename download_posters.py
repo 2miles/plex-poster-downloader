@@ -186,13 +186,20 @@ def print_summary(args, library_name, library_type, counters):
 # === Library Handling ================================================
 
 
-def sanitize_filename(name: str) -> str:
-    """Removes or replaces characters that are invalid or problematic in file or folder names."""
-    # Replace forbidden characters for all major OSes
+def sanitize_filename(name: str, mode="write") -> str:
+    """
+    Sanitize a filename or folder name.
+
+    mode="write": strict sanitization for creating new files/folders.
+    mode="read":  lenient mode for matching existing filesystem names.
+    """
+    if mode == "read":
+        # only remove path separators, keep everything else
+        return name.replace("/", "-").replace("\\", "-").strip()
+
+    # strict mode: safe for creating new files
     sanitized = re.sub(r'[\\/*?:"<>|]', "", name)
-    # Remove periods, except when used before file extensions
     sanitized = sanitized.replace(".", "")
-    # Trim whitespace and trailing dots/spaces
     sanitized = sanitized.strip().strip(".")
     return sanitized
 
@@ -240,89 +247,6 @@ def handle_movie_library(root, args, counters):
 
 
 def handle_show_library(root, args, counters):
-    for show_tag in root.findall("Directory"):
-        show_title = show_tag.get("title", "Unknown Show")
-        rating_key = show_tag.get("ratingKey")
-
-        if not rating_key:
-            continue
-
-        # Fetch metadata to get poster
-        show_meta = get_plex_response(f"/library/metadata/{rating_key}")
-        if not show_meta.ok:
-            continue
-
-        meta_root = ET.fromstring(show_meta.content)
-        video_tag = meta_root.find("Directory")
-        if video_tag is None:
-            continue
-
-        # 2. Resolve media path (based on first episode)
-        media_path = get_path_from_first_episode(rating_key)
-        if not media_path:
-            print(f"Could not resolve path for show: {show_title}")
-            continue
-
-        media_path = os.path.dirname(resolve_nas_path(media_path))
-        download_artwork(video_tag, media_path, args, counters)
-
-        # 3. Season-level poster download
-        season_resp = get_plex_response(f"/library/metadata/{rating_key}/children")
-        if not season_resp.ok:
-            continue
-        season_root = ET.fromstring(season_resp.content)
-        season_root_path = media_path
-
-        try:
-            folders = [
-                d
-                for d in os.listdir(season_root_path)
-                if os.path.isdir(os.path.join(season_root_path, d))
-            ]
-        except FileNotFoundError:
-            print(f"[ERROR] Could not list folders in {season_root_path}")
-            folders = []
-
-        for season in season_root.findall("Directory"):
-            season_title = season.get("title", "").strip()
-
-            if season_title.lower() in ["specials", "season 0", "season 00"]:
-                possible_names = ["Specials", "Season 00", "Season 0"]
-            else:
-                # handle "Season X" style titles
-                match = re.match(r"Season\s+(\d+)", season_title, re.IGNORECASE)
-                if not match:
-                    if season_title.lower() == "all episodes":
-                        continue
-                    print(
-                        f"{Fore.YELLOW}[WARN]  {Fore.WHITE}Skipping non-standard season title: "
-                        f"{Style.BRIGHT}{show_title} {Style.RESET_ALL}{season_title} -- {Fore.BLUE}{season_root_path}"
-                    )
-                    continue
-
-                season_num = int(match.group(1))
-                possible_names = [f"Season {season_num}", f"Season {season_num:02d}"]
-
-            matching_folder = next(
-                (f for f in folders if f.lower() in [name.lower() for name in possible_names]),
-                None,
-            )
-
-            if not matching_folder:
-                print(
-                    f"{Fore.YELLOW}[WARN]  {Fore.WHITE}No folder matched "
-                    f"{Style.BRIGHT}{show_title} {Style.RESET_ALL}{season_title} -- {Fore.BLUE}{season_root_path}"
-                )
-                continue
-
-            season_path = os.path.join(season_root_path, matching_folder)
-
-            if args.poster:
-                result = handle_artwork_download("poster", season, season_path, args.mode)
-                increment_counter(result, counters["poster"])
-
-
-def handle_show_library(root, args, counters):
     """Main handler for Plex TV show libraries."""
     for show_tag in root.findall("Directory"):
         show_title = show_tag.get("title", "Unknown Show")
@@ -344,7 +268,7 @@ def handle_show_library(root, args, counters):
         media_path = get_path_from_first_episode(rating_key)
         if not media_path:
             print(f"Could not resolve path for show: {show_title}")
-            return
+            continue
 
         media_path = os.path.dirname(resolve_nas_path(media_path))
 
@@ -444,7 +368,7 @@ def handle_music_library(root, args, counters):
         artist_path = get_path_from_first_album(artist_key)
         if not artist_path:
             print(f"Could not resolve path for artist: {artist_title}")
-            return
+            continue
         artist_path = resolve_nas_path(os.path.dirname(artist_path))
 
         handle_artist_artwork(artist_tag, artist_title, artist_path, args, counters)
@@ -467,8 +391,6 @@ def handle_artist_artwork(artist_tag, artist_title, artist_path, args, counters)
         if art:
             result = handle_artwork_download("fanart", artist_tag, artist_path, args.mode)
             increment_counter(result, counters["fanart"])
-        else:
-            print(f"{Fore.YELLOW}[WARN]  {Fore.WHITE}No fanart found for '{artist_title}'")
 
 
 def handle_album_artwork(artist_key, artist_title, artist_path, args, counters):
@@ -495,7 +417,7 @@ def process_album_tag(album_tag, artist_title, artist_path, args, counters):
         )
         return
 
-    sanitized_title = sanitize_filename(album_title)
+    sanitized_title = sanitize_filename(album_title, mode="write")
     album_path = os.path.join(artist_path, sanitized_title)
 
     # Folder matching logic — unchanged
@@ -519,6 +441,12 @@ def process_album_tag(album_tag, artist_title, artist_path, args, counters):
         )
         return
 
+    if not os.path.isdir(os.path.dirname(dest_path)):
+        print(
+            f"{Fore.YELLOW}[WARN]{Fore.WHITE} Plex path no longer exists: {os.path.dirname(dest_path)}"
+        )
+        increment_counter("skipped", counters["cover"])
+        return
     download_image(url, dest_path)
     log_output_str("cover.jpg", album_title, artist_title, dest_path)
     increment_counter("downloaded", counters["cover"])
@@ -526,7 +454,7 @@ def process_album_tag(album_tag, artist_title, artist_path, args, counters):
 
 def resolve_album_path_for_download(album_path, artist_title, album_title, artist_path, args):
     """Resolve the correct album folder by fuzzy matching and optional renaming."""
-    sanitized_title = sanitize_filename(album_title)
+    sanitized_title = sanitize_filename(album_title, mode="read")
 
     if os.path.isdir(album_path):
         return album_path
@@ -904,7 +832,7 @@ def log_output_str(filename, title, parent_name, dest_path) -> str:
 
     if filename == "fanart.jpg":
         print(
-            f"{Fore.LIGHTCYAN_EX}{name} {Style.RESET_ALL}: "
+            f"{Fore.LIGHTCYAN_EX}{name}{Style.RESET_ALL}: "
             f"{Style.BRIGHT}{Fore.WHITE}{title}{Style.RESET_ALL}"
         )
     elif filename == "poster.jpg":

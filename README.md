@@ -1,5 +1,7 @@
 # Plex Poster Downloader
 
+A Python tool for downloading and organizing artwork from your Plex server.
+
 ## Acknowledgments
 
 Originally inspired by a script by [Paul Salmon (TechieGuy12)](https://github.com/TechieGuy12):
@@ -8,9 +10,9 @@ Originally inspired by a script by [Paul Salmon (TechieGuy12)](https://github.co
 
 ### Notable Features
 
-- Supports posters and fanart for both Movies and TV Shows (incuding seasons)
+- Supports posters and fanart for Movies, TV Shows, and Music
 - Flexible file handling via `--mode`: `skip`, `overwrite`, or `add`
-- Artwork type flags: `--posters` and `--fanart`
+- Artwork type flags: `--poster` and `--fanart`
 - Easily list Plex libraries with `--list-libraries`
 - Target Plex librarys via `--library`
 - Environment variable support via `.env`:
@@ -23,9 +25,9 @@ I wanted a better way of [managing my movie posters](https://www.plexopedia.com/
 
 The issue is that posters (and fanart) that are downloaded from Plex or uploaded using the Web app are stored in bundles. These are folders in the [Plex data directory](https://www.plexopedia.com/plex-media-server/general/data-directory/) that contain all the files for the movie, including artwork, but aren’t ideal for manual control, backup, or portability.
 
-This script downloads all the movie, TV show, and season posters/fanart images for items in a given Plex library and saves them in their respective movie folder as `poster.jpg` and `fanart.jpg`. This ensures you have a local copy of each image saved in the correct movie folder — one that Plex will detect and use instead of automatically selecting its own.
+This script downloads all the movie, TV show, and music images for items in a given Plex library and saves them in their respective movie folder as `poster.jpg` and `fanart.jpg`. This ensures you have a local copy of each image saved in the correct movie folder — one that Plex will detect and use instead of automatically selecting its own.
 
-You can choose to include specific image types with `--posters` and `--fanart`
+You can choose to include specific image types with `--poster` and `--fanart`
 
 ## Setup
 
@@ -107,7 +109,7 @@ The script accepts several arguments:
   - **overwrite**: Always replace existing files.
   - **add**: Keep existing files and save new ones as `poster-1.jpg`, `fanart-1.jpg`, etc.
 - `--library`: The Plex library ID to download from (default: `1`). (use `--list-libraries` to find your ID's)
-- `--posters`: Download `poster.jpg`.
+- `--poster`: Download `poster.jpg`.
 - `--fanart`: Download `fanart.jpg`.
 - `--list-libraries`: Print a list of all available Plex libraries (title, type, and ID). Useful for discovering the correct `--library` value before downloading.
 
@@ -123,19 +125,30 @@ python download_posters.py --list-libraries
 
 #### Download initial posters for movies in library 1 (default library):
 
-- `python3 download_posters.py --posters`
+- `python3 download_posters.py --poster`
 
 #### Add additional poster and fanart images to library 3:
 
-- `python3 download_posters.py --mode=add --library=3 --posters --fanart`
+- `python3 download_posters.py --mode=add --library=3 --poster --fanart`
 
 #### Overwrite all existing posters and fanart in library 3:
 
-- `python3 download_posters.py --mode=overwrite --library=3 --posters --fanart`
+- `python3 download_posters.py --mode=overwrite --library=3 --poster --fanart`
 
 ### Folder Naming for TV Shows
 
-To correctly download and save season and specials posters, your TV library folders must follow Plex’s standard naming convention. This is how the script identifies the correct subfolders for each season.
+For TV show and season artwork to save correctly, your TV library should follow the standard Plex folder layout:
+
+```
+TV library/
+├── Show title/
+│   ├── Season 01/
+│   ├── ...
+│   └── Specials/
+└── Another Show title/
+```
+
+To correctly download and save season and specials posters, your TV library folders must follow Plex’s standard naming convention.
 
 Valid season folder names include:
 
@@ -159,6 +172,20 @@ If your folder names differ (e.g. S01, Season One), season posters may not downl
 
 ```
 [WARN] Skipping non-standard season title: The Simpsons Season One
+```
+
+### Folder Organization for Music
+
+For artist and album artwork to save correctly, your music library should follow the standard Plex folder layout:
+
+```
+Music library/
+├── Artist Name/
+│   ├── Album Title/
+│   │   ├── 01 - Track.mp3
+│   │   └── ...
+│   └── ...
+└── Another Artist/
 ```
 
 ## Disclaimer

@@ -112,6 +112,8 @@ The script accepts several arguments:
 - `--poster`: Download `poster.jpg`.
 - `--fanart`: Download `fanart.jpg`.
 - `--list-libraries`: Print a list of all available Plex libraries (title, type, and ID). Useful for discovering the correct `--library` value before downloading.
+- `--rename-albums`: Rename music album directories to match plex metadata (confirm before each rename)
+- `--force-rename`: Suppress confirmation for music album renaming.
 
 ### How to find your Plex Library ID
 

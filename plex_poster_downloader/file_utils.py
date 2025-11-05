@@ -3,8 +3,7 @@ import os
 import shutil
 from typing import Optional
 
-from colorama import Fore, Style
-
+from .log_utils import green_text, log_failed_folder_listing, red_text, yellow_text
 from .config import CONTAINER_MEDIA_PREFIX, HOST_MEDIA_PREFIX
 
 
@@ -55,7 +54,7 @@ def list_subfolders(path, quiet: bool = False) -> list[str]:
         return [name for name in os.listdir(path) if os.path.isdir(os.path.join(path, name))]
     except FileNotFoundError:
         if not quiet:
-            print(f"[ERROR] Could not list folders in {path}")
+            log_failed_folder_listing(path)
         return []
 
 
@@ -80,22 +79,18 @@ def maybe_rename_folder(
 
     if confirm:
         user_input = (
-            input(
-                f"{Fore.WHITE}Rename album directory to match Plex album title? [y/N]: {Style.RESET_ALL}"
-            )
-            .strip()
-            .lower()
+            input(f"Rename album directory to match Plex album title? [y/N]: ").strip().lower()
         )
         if user_input != "y":
-            print(f"{Fore.YELLOW}Skipped renaming{Style.RESET_ALL}\n")
+            print(f"{yellow_text('Skipped renaming')}\n")
             return False
 
     try:
         shutil.move(old_path, new_path)
-        print(f"{Fore.GREEN}Renamed successfully{Style.RESET_ALL}\n")
+        print(f"{green_text('Renamed successfully')}\n")
         return True
     except Exception as e:
-        print(f"{Fore.RED}Failed to rename: {e}{Style.RESET_ALL}\n")
+        print(f"{red_text('Failed to rename: ')}{e}\n")
         return False
 
 

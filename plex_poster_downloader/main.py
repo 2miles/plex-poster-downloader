@@ -1,7 +1,7 @@
 from .args import parse_args
 from .config import check_required_env
 from .library_handlers import handle_movie_library, handle_show_library, handle_music_library
-from .log_utils import print_summary
+from .log_utils import log_summary, log_fatal_error
 from .plex_api import get_library_metadata, list_plex_libraries, get_all_media
 
 """
@@ -16,16 +16,14 @@ environment-based configuration, error handling, and improved documentation.
 def main_logic(args):
     library = get_library_metadata(args.library)
     if not library:
-        print(f"Failed to retrieve metadata ofr library ID {args.library}")
-        exit(1)
+        log_fatal_error(f"Failed to retrieve metadata for library ID {args.library}")
 
     library_name = library["title"]
     library_type = library["type"]
 
     root = get_all_media(args.library)
     if root is None:
-        print(f"Failed to retrieve media for library ID {args.library}")
-        exit(1)
+        log_fatal_error(f"Failed to retrieve media for library ID {args.library}")
 
     counters = {
         "poster": {"downloaded": 0, "skipped": 0},
@@ -42,7 +40,7 @@ def main_logic(args):
     else:
         print(f"Unsupported library type: {library_type}")
 
-    print_summary(args, library_name, library_type, counters)
+    log_summary(args, library_name, library_type, counters)
 
 
 def main():

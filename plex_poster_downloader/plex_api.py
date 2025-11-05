@@ -5,6 +5,15 @@ from typing import Optional
 from colorama import Fore, Style
 import requests
 
+from .log_utils import (
+    bright_magenta_text,
+    bright_text,
+    log_available_libraries,
+    log_fatal_error,
+    log_plex_connection_error,
+    yellow_text,
+)
+
 from .config import PLEX_URL, PLEX_TOKEN
 
 
@@ -64,12 +73,10 @@ def list_plex_libraries():
     """Prints a formatted list of Plex libraries (title, type, and ID), sorted by ID."""
     response = get_plex_response("/library/sections")
     if not response.ok:
-        print(f"Failed to fetch libraries: {response.status_code}")
-        return
+        log_plex_connection_error(response.status_code, PLEX_URL)
 
     root = ET.fromstring(response.content)
 
-    # Collect libraries into a list of tuples
     libraries = []
     for directory in root.findall("Directory"):
         title = directory.get("title")
@@ -77,21 +84,9 @@ def list_plex_libraries():
         lib_id = directory.get("key")
         libraries.append((int(lib_id), title, lib_type))
 
-    # Sort by lib_id (numeric)
     libraries.sort()
 
-    print(
-        f"\n\n{Style.BRIGHT}Available Plex Libraries:"
-        f"\n{Style.BRIGHT}{Fore.WHITE}==============================================================="
-    )
-
-    for lib_id, title, lib_type in libraries:
-        print(
-            f"{Style.BRIGHT}{Fore.MAGENTA}{title:<30}{Style.RESET_ALL}"
-            f"{Fore.YELLOW}type: {lib_type:<8}  "
-            f"{Fore.WHITE}library: {Style.BRIGHT}{lib_id}"
-        )
-    print("\n")
+    log_available_libraries(libraries)
 
 
 def get_media_path(video_tag: ET.Element) -> Optional[str]:

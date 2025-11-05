@@ -15,10 +15,14 @@ from .file_utils import (
     resolve_output_path,
 )
 from .log_utils import (
+    log_invalid_cover_url,
+    log_missing_artwork,
+    log_missing_media_path,
+    log_no_album_cover,
+    log_no_folder_match,
+    log_nonstandard_season_title,
     log_output_str,
-    maybe_print_rename_message,
-    print_no_match_warning,
-    print_no_season_match_warning,
+    log_rename_prompt,
 )
 from .plex_api import (
     get_media_path,
@@ -33,7 +37,8 @@ def handle_movie_library(root, args, counters):
     for video_tag in root.findall("Video"):
         media_path = get_media_path(video_tag)
         if not media_path:
-            print("The path to the media was not found.")
+            title = video_tag.get("title", "Unknown Movie")
+            log_missing_media_path(title, "movie")
             continue
         media_path = resolve_nas_path(media_path)
         download_artwork(video_tag, media_path, args, counters)
@@ -60,7 +65,7 @@ def handle_show_library(root, args, counters):
         # --- Resolve show path ---
         media_path = get_path_from_first_episode(rating_key)
         if not media_path:
-            print(f"Could not resolve path for show: {show_title}")
+            log_missing_media_path(show_title, "show")
             continue
 
         media_path = os.path.dirname(resolve_nas_path(media_path))
@@ -91,11 +96,11 @@ def process_season_tag(season, show_title, season_root_path, folders, args, coun
     season_title = season.get("title", "").strip()
     possible_names = resolve_possible_season_names(season_title)
     if not possible_names:
-        return  # handled or skipped in helper
+        return
 
     matching_folder = find_matching_folder(folders, possible_names)
     if not matching_folder:
-        print_no_season_match_warning(show_title, season_title, season_root_path)
+        log_no_folder_match(show_title, season_title, season_root_path, "season")
         return
 
     season_path = os.path.join(season_root_path, matching_folder)
@@ -114,13 +119,7 @@ def resolve_possible_season_names(season_title):
     if not match:
         if season_title.lower() == "all episodes":
             return None
-        print(
-            ###########
-            # Use logger for fanart and other warnings, unless --verbose is set
-            ###########
-            f"{Fore.YELLOW}[WARN]  {Fore.WHITE}Skipping non-standard season title: "
-            f"{Style.BRIGHT}{season_title}{Style.RESET_ALL}"
-        )
+        log_nonstandard_season_title(season_title)
         return None
 
     season_num = int(match.group(1))
@@ -137,7 +136,7 @@ def handle_music_library(root, args, counters):
 
         artist_path = get_path_from_first_album(artist_key)
         if not artist_path:
-            print(f"Could not resolve path for artist: {artist_title}")
+            log_missing_media_path(artist_title, "artist")
             continue
         artist_path = resolve_nas_path(os.path.dirname(artist_path))
 
@@ -154,10 +153,7 @@ def handle_artist_artwork(artist_tag, artist_title, artist_path, args, counters)
             result = handle_artwork_download("poster", artist_tag, artist_path, args.mode)
             increment_counter(result, counters["poster"])
         else:
-            ###########
-            # Use logger for fanart and other warnings, unless --verbose is set
-            ###########
-            print(f"{Fore.YELLOW}[WARN]  {Fore.WHITE}No poster found for '{artist_title}'")
+            log_missing_artwork("poster", artist_title)
 
     if args.fanart:
         art = artist_tag.get("art")
@@ -184,10 +180,7 @@ def process_album_tag(album_tag, artist_title, artist_path, args, counters):
     album_thumb = album_tag.get("thumb")
 
     if not album_thumb:
-        print(
-            f"{Fore.YELLOW}[WARN]  {Fore.WHITE}No cover found for "
-            f"'{album_title}' ({artist_title})"
-        )
+        log_no_album_cover(album_title, artist_title)
         return
 
     album_path = os.path.join(artist_path, album_title)
@@ -207,24 +200,14 @@ def process_album_tag(album_tag, artist_title, artist_path, args, counters):
 
     url = f"{PLEX_URL}{album_thumb}?X-Plex-Token={PLEX_TOKEN}"
     if not album_thumb or "None" in url:
-        print(
-            ###########
-            # Use logger for fanart and other warnings, unless --verbose is set
-            ###########
-            f"{Fore.YELLOW}[WARN]{Fore.WHITE} Invalid cover URL for album "
-            f"'{album_title}' ({artist_title})"
-        )
+        log_invalid_cover_url(album_title, artist_title)
         return
 
     if not os.path.isdir(os.path.dirname(dest_path)):
-        print(
-            ###########
-            # Use logger for fanart and other warnings, unless --verbose is set
-            ###########
-            f"{Fore.YELLOW}[WARN]{Fore.WHITE} Plex path no longer exists: {os.path.dirname(dest_path)}"
-        )
+        log_missing_media_path(album_title, "album")
         increment_counter("skipped", counters["cover"])
         return
+
     download_image(url, dest_path)
     log_output_str("cover.jpg", album_title, artist_title, dest_path)
     increment_counter("downloaded", counters["cover"])
@@ -232,8 +215,6 @@ def process_album_tag(album_tag, artist_title, artist_path, args, counters):
 
 def resolve_album_path_for_download(album_path, artist_title, album_title, artist_path, args):
     """Resolve the correct album folder by fuzzy matching and optional renaming."""
-
-    # If the folder already exists as-is, just return it
     if os.path.isdir(album_path):
         return album_path
 
@@ -241,23 +222,23 @@ def resolve_album_path_for_download(album_path, artist_title, album_title, artis
     match = find_best_match(album_title, existing_folders)
 
     if not match:
-        print(f"[WARN]  No folder matched {album_title} -- {artist_path}")
+        log_no_folder_match(artist_title, album_title, artist_path, "album")
         return None
 
     matching_folder = next((f for f in existing_folders if f.lower() == match), None)
     album_path = os.path.join(artist_path, matching_folder)
 
-    maybe_print_rename_message(args, artist_title, album_title, matching_folder)
-
-    if args.rename_albums and matching_folder != album_title:
-        renamed = maybe_rename_folder(
-            artist_path,
-            matching_folder,
-            album_title,
-            confirm=not args.force_rename,
-        )
-        if renamed:
-            matching_folder = album_title
-            album_path = os.path.join(artist_path, matching_folder)
+    if args.rename_albums:
+        log_rename_prompt(artist_title, album_title, matching_folder, args.force_rename)
+        if matching_folder != album_title:
+            renamed = maybe_rename_folder(
+                artist_path,
+                matching_folder,
+                album_title,
+                confirm=not args.force_rename,
+            )
+            if renamed:
+                matching_folder = album_title
+                album_path = os.path.join(artist_path, matching_folder)
 
     return album_path

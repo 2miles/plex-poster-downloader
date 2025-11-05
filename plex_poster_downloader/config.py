@@ -1,6 +1,8 @@
 import os
 from dotenv import load_dotenv
 
+from .log_utils import log_fatal_error
+
 try:
     from colorama import Fore, Style, init
 
@@ -32,6 +34,7 @@ def check_required_env():
     if not PLEX_TOKEN:
         missing.append("PLEX_TOKEN")
     if missing:
-        print(f"Error: Missing environment variable(s): {', '.join(missing)}")
-        print("Please set them in your .env file.")
-        exit(1)
+        log_fatal_error(
+            f"Missing required environment variable(s): {', '.join(missing)}.\n"
+            "Please set them in your .env file."
+        )

@@ -36,8 +36,8 @@ You can choose to include specific image types with `--poster` and `--fanart`
 Open a terminal and run:
 
 ```bash
-   git clone https://github.com/2miles/plex-posters.git
-   cd plex-posters
+   git clone https://github.com/2miles/plex-poster-downloader.git
+   cd plex-poster-downloader
 ```
 
 ### 2. **Install Dependencies**
@@ -127,15 +127,15 @@ python download_posters.py --list-libraries
 
 #### Download initial posters for movies in library 1 (default library):
 
-- `python3 download_posters.py --poster`
+- `python3 -m plex_poster_downloader --poster`
 
 #### Add additional poster and fanart images to library 3:
 
-- `python3 download_posters.py --mode=add --library=3 --poster --fanart`
+- `python3 -m plex_poster_downloader --mode=add --library=3 --poster --fanart`
 
 #### Overwrite all existing posters and fanart in library 3:
 
-- `python3 download_posters.py --mode=overwrite --library=3 --poster --fanart`
+- `python3 -m plex_poster_downloader --mode=overwrite --library=3 --poster --fanart`
 
 ### Folder Naming for TV Shows
 

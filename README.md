@@ -120,7 +120,7 @@ The script accepts several arguments:
 Run the script with only the `--list-libraries` before downloading to see all available library names with their corrisponding library ID's:
 
 ```bash
-python download_posters.py --list-libraries
+python -m plex_poster_downloader --list-libraries
 ```
 
 ### Examples

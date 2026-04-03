@@ -1,123 +1,170 @@
 # Plex Poster Downloader
 
-A Python tool for downloading and organizing artwork from your Plex server.
+A Python CLI for downloading artwork from a Plex server and saving it directly into your media folders.
 
-## Acknowledgments
+It supports:
 
-Originally inspired by a script by [Paul Salmon (TechieGuy12)](https://github.com/TechieGuy12):
+- movie posters and fanart
+- TV show posters, season posters, and fanart
+- music artist posters, fanart, and album covers
 
-- Blog post: [Download Movie Posters from a Plex Server](https://www.plexopedia.com/blog/download-movie-posters-from-plex-server/)
+The goal is to keep artwork as normal image files in your library instead of leaving it buried inside Plex metadata bundles.
 
-### Notable Features
+## Why This Exists
 
-- Supports posters and fanart for Movies, TV Shows, and Music
-- Flexible file handling via `--mode`: `skip`, `overwrite`, or `add`
-- Artwork type flags: `--poster` and `--fanart`
-- Easily list Plex libraries with `--list-libraries`
-- Target Plex librarys via `--library`
-- Environment variable support via `.env`:
-  - `PLEX_URL`, `PLEX_TOKEN` (required)
-  - `CONTAINER_MEDIA_PREFIX`, `HOST_MEDIA_PREFIX` (optional for path mapping)
+Plex can manage artwork automatically, but that artwork is often stored in Plex bundle directories rather than alongside your media files. This tool pulls artwork out of Plex and writes it into the media library itself as files such as:
 
-## Overview
+- `poster.jpg`
+- `fanart.jpg`
+- `cover.jpg`
 
-I wanted a better way of [managing my movie posters](https://www.plexopedia.com/plex-media-server/general/posters-artwork/), instead of leaving it to Plex. A way that prevents the posters from being changed by Plex and also allows me to store the actual movie poster file as a `.jpg`
+That gives you more control over backups, portability, and manual artwork management.
 
-The issue is that posters (and fanart) that are downloaded from Plex or uploaded using the Web app are stored in bundles. These are folders in the [Plex data directory](https://www.plexopedia.com/plex-media-server/general/data-directory/) that contain all the files for the movie, including artwork, but aren’t ideal for manual control, backup, or portability.
+It also helps lock in your chosen artwork. If a media folder contains a local `poster.jpg` and Plex is configured to prefer local media assets for that library, Plex will use the local poster instead of replacing it with a different automatically selected one.
 
-This script downloads all the movie, TV show, and music images for items in a given Plex library and saves them in their respective movie folder as `poster.jpg` and `fanart.jpg`. This ensures you have a local copy of each image saved in the correct movie folder — one that Plex will detect and use instead of automatically selecting its own.
+## How It Works
 
-You can choose to include specific image types with `--poster` and `--fanart`
+The script:
+
+1. connects to your Plex server with `PLEX_URL` and `PLEX_TOKEN`
+2. reads metadata from a selected Plex library
+3. resolves each media item's folder on disk
+4. downloads artwork from Plex
+5. writes the image files directly into the media folders
+
+There is no database. The filesystem is the final output.
+
+## Important: Where To Run It
+
+Run this script on a machine that can do both of the following:
+
+- reach your Plex server over the network
+- access the actual media folders that will receive `poster.jpg`, `fanart.jpg`, and `cover.jpg`
+
+If you run it on a machine that can talk to Plex but cannot access the library folders, the script will enumerate your library successfully but skip downloads because the output paths do not exist locally.
+
+For many setups, that means running it directly on the NAS, server, or Docker host where the media is mounted.
+
+## Features
+
+- Supports movies, TV shows, and music libraries
+- Downloads posters and fanart with `--poster` and `--fanart`
+- Lists available Plex libraries with `--list-libraries`
+- Supports file handling modes with `--mode`
+- Supports container-to-host path remapping for Docker-based Plex installs
+- Can optionally rename music album folders to match Plex metadata
 
 ## Setup
 
-### 1. **Clone this repository**
-
-Open a terminal and run:
+### 1. Clone the repository
 
 ```bash
-   git clone https://github.com/2miles/plex-poster-downloader.git
-   cd plex-poster-downloader
+git clone https://github.com/2miles/plex-poster-downloader.git
+cd plex-poster-downloader
 ```
 
-### 2. **Install Dependencies**
+### 2. Install dependencies
 
-It's recomended to use a virtual environment:
+Using a virtual environment is recommended:
 
 ```bash
 python -m venv venv
-source venv/bin/activate  # On Windows use: venv\Scripts\activate
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Or just install manually:
+Or install the packages directly:
 
 ```bash
 pip install requests python-dotenv colorama
 ```
 
-### 3. Get your Plex server URL (PLEX_URL)
+### 3. Get your Plex server URL
 
-This is typically something like: `http://192.168.0.2:32400`
+Set `PLEX_URL` to your Plex server address, for example:
 
-### 4. Get your Plex token (PLEX_TOKEN)
+```text
+http://192.168.0.2:32400
+```
 
-- Log in to your Plex account
-- Open Developer Tools (F12) in your browser
-- Go to the Network tab
-- Play or open a media item
-- In the Network tab click on the request
-- Click any request to `/library/...`
-- In Headers, scroll down to Query String Parameters or Request Headers and look for `X-Plex-Token: abc123xyz456...`
+### 4. Get your Plex token
+
+One easy way:
+
+1. Log in to Plex in a browser
+2. Open Developer Tools
+3. Open the Network tab
+4. Open or play a media item
+5. Inspect any request to `/library/...`
+6. In Headers, look under Query String Parameters or Request Headers for `X-Plex-Token`
+
+Use that value for `PLEX_TOKEN` in your `.env` file.
 
 ### 5. Create a `.env` file
 
-In the root of the project, create a file called `.env` and add:
-
-```
+```env
 PLEX_URL=http://192.168.0.2:32400
 PLEX_TOKEN=abc123xyz456
 CONTAINER_MEDIA_PREFIX=
 HOST_MEDIA_PREFIX=
 ```
 
-### 7. (Optional) Map Container Paths to NAS Paths
+## Path Mapping For Docker / NAS Setups
 
-If you’re running Plex in Docker and your media files are stored outside the container, Plex will report file paths like: `/data/media/Movies/Your Movie (2020)`
+If Plex runs in Docker, it may report media paths from inside the container, for example:
 
-But the actual path on your NAS might be: `/volume1/data/media/Movies/Your Movie (2020)`
-
-To handle this, set the following variables in your `.env` file:
-
+```text
+/data/media/Movies/Your Movie (2020)
 ```
+
+But the real path on the machine running this script might be:
+
+```text
+/volume1/data/media/Movies/Your Movie (2020)
+```
+
+In that case, set:
+
+```env
 CONTAINER_MEDIA_PREFIX=/data/media
 HOST_MEDIA_PREFIX=/volume1/data/media
 ```
 
-This tells the script to replace /data/media... with /volume1/data/media... so it can find the correct folders when saving posters.
+The script will replace the container prefix with the host prefix before writing files.
 
-**_If you’re not using Docker, or if Plex’s media paths already match your filesystem, you can leave these variables unset and the script will skip this step automatically._**
+Leave these blank if Plex already reports paths that are valid on the machine where you run the script.
 
-## How to use
+## Usage
 
 ### Arguments
 
-The script accepts several arguments:
+- `--mode`
+  Controls how files are handled. Default: `skip`. Valid values are `skip`, `overwrite`, and `add`.
+- `--library`
+  Plex library section ID. Default: `1`.
+- `--poster`
+  Download `poster.jpg`.
+- `--fanart`
+  Download `fanart.jpg`.
+- `--list-libraries`
+  Print available Plex libraries and exit.
+- `--rename-albums`
+  Rename album folders to match Plex metadata, prompting first.
+- `--force-rename`
+  Rename album folders without prompting.
 
-- `--mode`: Controls how artwork files are handled. Defaults to `skip`.
-  - **skip**: Only download if the file doesn't already exist.
-  - **overwrite**: Always replace existing files.
-  - **add**: Keep existing files and save new ones as `poster-1.jpg`, `fanart-1.jpg`, etc.
-- `--library`: The Plex library ID to download from (default: `1`). (use `--list-libraries` to find your ID's)
-- `--poster`: Download `poster.jpg`.
-- `--fanart`: Download `fanart.jpg`.
-- `--list-libraries`: Print a list of all available Plex libraries (title, type, and ID). Useful for discovering the correct `--library` value before downloading.
-- `--rename-albums`: Rename music album directories to match plex metadata (confirm before each rename)
-- `--force-rename`: Suppress confirmation for music album renaming.
+### File Modes
 
-### How to find your Plex Library ID
+- `skip`
+  Only download artwork when the target file does not already exist.
+- `overwrite`
+  Replace existing files.
+- `add`
+  Keep existing files and save additional copies like `poster-1.jpg` or `fanart-1.jpg`.
 
-Run the script with only the `--list-libraries` before downloading to see all available library names with their corrisponding library ID's:
+If your goal is "download only the missing artwork", use `--mode=skip`.
+
+### Find your library IDs
 
 ```bash
 python -m plex_poster_downloader --list-libraries
@@ -125,62 +172,65 @@ python -m plex_poster_downloader --list-libraries
 
 ### Examples
 
-#### Download initial posters for movies in library 1 (default library):
+Download only missing posters for the library with ID `1` (the default if `--library` is omitted):
 
-- `python3 -m plex_poster_downloader --poster`
-
-#### Add additional poster and fanart images to library 3:
-
-- `python3 -m plex_poster_downloader --mode=add --library=3 --poster --fanart`
-
-#### Overwrite all existing posters and fanart in library 3:
-
-- `python3 -m plex_poster_downloader --mode=overwrite --library=3 --poster --fanart`
-
-### Folder Naming for TV Shows
-
-For TV show and season artwork to save correctly, your TV library should follow the standard Plex folder layout:
-
+```bash
+python3 -m plex_poster_downloader --mode=skip --poster
 ```
+
+Download only missing posters and fanart for library `3`:
+
+```bash
+python3 -m plex_poster_downloader --mode=skip --library=3 --poster --fanart
+```
+
+Add extra poster and fanart files without replacing existing ones:
+
+```bash
+python3 -m plex_poster_downloader --mode=add --library=3 --poster --fanart
+```
+
+Overwrite all existing posters and fanart in library `3`:
+
+```bash
+python3 -m plex_poster_downloader --mode=overwrite --library=3 --poster --fanart
+```
+
+## Library Layout Expectations
+
+### TV libraries
+
+For show and season artwork to land in the right place, TV folders should follow a standard Plex layout:
+
+```text
 TV library/
-├── Show title/
+├── Show Title/
 │   ├── Season 01/
-│   ├── ...
+│   ├── Season 02/
 │   └── Specials/
-└── Another Show title/
+└── Another Show/
 ```
 
-To correctly download and save season and specials posters, your TV library folders must follow Plex’s standard naming convention.
+Recognized season folder names include:
 
-Valid season folder names include:
+- `Season 1`
+- `Season 01`
+- `1`
+- `01`
 
-```
-Season 1
-Season 01
-1
-01
-```
+Recognized specials folder names include:
 
-The specials folder must be named one of:
+- `Specials`
+- `Season 0`
+- `Season 00`
 
-```
-Specials
-Season 0
-Season 00
-```
+If your folders use non-standard names such as `S01` or `Season One`, season posters may be skipped.
 
-These naming patterns are the same ones Plex expects for matching metadata.
-If your folder names differ (e.g. S01, Season One), season posters may not download or may be skipped with a warning like:
+### Music libraries
 
-```
-[WARN] Skipping non-standard season title: The Simpsons Season One
-```
+For artist, album, and cover artwork to resolve correctly, music libraries should look roughly like this:
 
-### Folder Organization for Music
-
-For artist and album artwork to save correctly, your music library should follow the standard Plex folder layout:
-
-```
+```text
 Music library/
 ├── Artist Name/
 │   ├── Album Title/
@@ -190,6 +240,43 @@ Music library/
 └── Another Artist/
 ```
 
+## Troubleshooting
+
+### The script lists my library but downloads nothing
+
+Check that you are running the script on a machine that can access the media folders locally.
+
+Common causes:
+
+- running the script on a laptop instead of the NAS/server
+- stale `CONTAINER_MEDIA_PREFIX` / `HOST_MEDIA_PREFIX` values
+- media paths reported by Plex do not match the local filesystem on that machine
+
+### I only want missing artwork, not extra numbered files
+
+Use:
+
+```bash
+--mode=skip
+```
+
+`--mode=add` is for keeping the current file and adding another one such as `poster-1.jpg`.
+
+### Every download fails
+
+Check:
+
+- `PLEX_URL`
+- `PLEX_TOKEN`
+- whether the resolved media path exists on disk
+- whether the user running the script can write into the media folders
+
 ## Disclaimer
 
-This script interacts directly with your Plex server and filesystem. Use with caution, especially when using `--mode=overwrite` or modifying file permissions. Always make backups before running any automation that alters media files.
+This script talks directly to your Plex server and writes directly into your media library. Use caution, especially with `--mode=overwrite` or folder renaming. Back up important media metadata before running automation against large libraries.
+
+## Acknowledgments
+
+Originally inspired by work from [Paul Salmon (TechieGuy12)](https://github.com/TechieGuy12):
+
+- [Download Movie Posters from a Plex Server](https://www.plexopedia.com/blog/download-movie-posters-from-plex-server/)

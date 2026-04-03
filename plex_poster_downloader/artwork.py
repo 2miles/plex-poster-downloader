@@ -8,7 +8,12 @@ import requests
 from .config import PLEX_TOKEN, PLEX_URL
 from .file_utils import resolve_output_path
 from .utils import increment_counter
-from .log_utils import log_failed_image_download, log_missing_artwork, log_output_str
+from .log_utils import (
+    log_failed_image_download,
+    log_missing_artwork,
+    log_missing_media_path,
+    log_output_str,
+)
 
 
 def get_image_url(image_type: str, video_tag: ET.Element) -> Optional[str]:
@@ -26,20 +31,22 @@ def get_image_url(image_type: str, video_tag: ET.Element) -> Optional[str]:
     return f"{PLEX_URL}{image}?X-Plex-Token={PLEX_TOKEN}"
 
 
-def download_image(poster_url: str, path: str) -> bool:
+def download_image(poster_url: str, path: str) -> tuple[bool, Optional[str]]:
     """Download an image from a given URL and save it to the specified local path."""
     try:
         response = requests.get(poster_url, stream=True, timeout=15)
         if not response.ok:
-            return False
+            return False, f"HTTP {response.status_code}"
 
         with open(path, "wb") as f:
             response.raw.decode_content = True
             shutil.copyfileobj(response.raw, f)
-        return True
+        return True, None
 
-    except (requests.RequestException, OSError):
-        return False
+    except requests.RequestException as exc:
+        return False, str(exc)
+    except OSError as exc:
+        return False, str(exc)
 
 
 def handle_artwork_download(
@@ -62,12 +69,16 @@ def handle_artwork_download(
             log_missing_artwork("poster", title)
         return "none"
 
+    if not os.path.isdir(media_path):
+        log_missing_media_path(title)
+        return "skipped"
+
     if not dest_path:
         return "skipped"
 
-    success = download_image(url, dest_path)
+    success, reason = download_image(url, dest_path)
     if not success:
-        log_failed_image_download(kind, title)
+        log_failed_image_download(kind, title, reason)
         return "skipped"
     log_output_str(filename, title, show_name, dest_path)
     return "downloaded"

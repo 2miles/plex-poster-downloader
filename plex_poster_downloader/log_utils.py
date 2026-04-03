@@ -171,8 +171,11 @@ def log_missing_art_url(kind, title):
     log_warning(f"No {kind} URL found for '{title}'")
 
 
-def log_failed_image_download(kind, title):
-    log_warning(f"Failed to download {kind} for '{title}'")
+def log_failed_image_download(kind, title, reason=None):
+    if reason:
+        log_warning(f"Failed to download {kind} for '{title}' ({reason})")
+    else:
+        log_warning(f"Failed to download {kind} for '{title}'")
 
 
 def log_failed_folder_listing(path):
